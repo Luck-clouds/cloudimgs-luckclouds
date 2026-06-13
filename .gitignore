@@ -5,6 +5,7 @@ client/node_modules/
 # Production builds
 client/build/
 dist/
+Document
 
 # Environment variables
 .env
