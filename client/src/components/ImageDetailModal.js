@@ -745,14 +745,13 @@ const ImageDetailModal = ({
                 >
                   {file.filename}
                 </Title>
-                <Button
-                  type="text"
-                  icon={
-                    <EditOutlined style={{ color: secondaryTextColor }} />
-                  }
-                  onClick={() => setIsEditingName(!isEditingName)}
-                  disabled={isExternalFile}
-                />
+                  <Button
+                    type="text"
+                    icon={
+                      <EditOutlined style={{ color: secondaryTextColor }} />
+                    }
+                    onClick={() => setIsEditingName(!isEditingName)}
+                  />
               </div>
 
               {isEditingName && (
@@ -868,7 +867,7 @@ const ImageDetailModal = ({
                   fontSize: 12,
                 }}
               >
-                当前文件来自外部图片源，云图侧仅提供索引、预览与分享，不直接改写源文件。
+                当前文件来自外部图片源。云图侧允许重命名，但仍不直接提供删除和移动操作。
               </div>
             )}
 

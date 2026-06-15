@@ -155,12 +155,13 @@ const insertMany = db.transaction((images) => {
 });
 
 // 重命名（原子替换路径）
-const renameImage = db.transaction((oldRelPath, newRelPath, newFilename) => {
+const renameImage = db.transaction((oldRelPath, newRelPath, newFilename, extraFields = {}) => {
     const existing = getImageByPath.get(oldRelPath);
     if (!existing) return null;
     deleteImageByPath.run(oldRelPath);
     existing.rel_path = newRelPath;
     existing.filename = newFilename;
+    Object.assign(existing, extraFields);
     insertImage.run(existing);
     return existing;
 });
@@ -244,7 +245,7 @@ module.exports = {
         }
     },
     update: (image) => updateImage.run(normalizeImageRecord(image)),
-    rename: (oldRelPath, newRelPath, newFilename) => renameImage(oldRelPath, newRelPath, newFilename),
+    rename: (oldRelPath, newRelPath, newFilename, extraFields = {}) => renameImage(oldRelPath, newRelPath, newFilename, extraFields),
     getByPath: (relPath) => getImageByPath.get(relPath),
     getAll: () => getAllImagesQuery.all(),
     getAllSyncEntries: () => getAllSyncEntriesQuery.all(),

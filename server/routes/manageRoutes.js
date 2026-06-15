@@ -6,7 +6,7 @@ const { requirePassword } = require('../middleware/auth');
 const imageRepository = require('../db/imageRepository');
 const { syncFileSystem } = require('../services/syncService');
 const { safeJoin, TRASH_DIR_NAME, CACHE_DIR_NAME } = require('../utils/fileUtils');
-const { isExternalRecord } = require('../services/mediaSourceService');
+const { isExternalRecord, resolveMediaPathFromRecord } = require('../services/mediaSourceService');
 
 const router = express.Router();
 const STORAGE_PATH = config.storage.path;
@@ -275,18 +275,22 @@ router.put('/images/*', requirePassword, async (req, res) => {
     }
 
     try {
-        if (!ensureExternalWritable(req, res)) return;
-        const record = ensureRecordWritable(relPath, res);
-        if (record === null) return;
+        const record = getRecordOrNull(relPath);
+        if (!record) {
+            return res.status(404).json({ success: false, error: "原文件不存在" });
+        }
 
-        const oldFilePath = safeJoin(STORAGE_PATH, relPath);
+        // 外部源文件允许重命名，但继续保持删除/移动只读。
+        const oldFilePath = resolveMediaPathFromRecord(record) || safeJoin(STORAGE_PATH, relPath);
         if (!await fs.pathExists(oldFilePath)) {
             return res.status(404).json({ success: false, error: "原文件不存在" });
         }
 
         const dir = path.dirname(relPath);
         const newRelPath = (dir && dir !== '.') ? `${dir}/${safeName}` : safeName;
-        const newFilePath = safeJoin(STORAGE_PATH, newRelPath);
+        const newFilePath = isExternalRecord(record)
+            ? path.join(path.dirname(oldFilePath), safeName)
+            : safeJoin(STORAGE_PATH, newRelPath);
 
         if (oldFilePath === newFilePath) {
             return res.json({ success: true, data: { relPath, filename: path.basename(relPath) } });
@@ -305,7 +309,15 @@ router.put('/images/*', requirePassword, async (req, res) => {
             await fs.rename(oldCacheFile, newCacheFile);
         }
 
-        const updated = imageRepository.rename(relPath, newRelPath, safeName);
+        const updatedStats = await fs.stat(newFilePath);
+        const updated = imageRepository.rename(relPath, newRelPath, safeName, {
+            source_rel_path: newRelPath,
+            source_abs_path: newFilePath,
+            source_mtime: updatedStats.mtimeMs,
+            source_size: updatedStats.size,
+            mtime: updatedStats.mtimeMs,
+            size: updatedStats.size,
+        });
         const { formatImageResponse } = require('../utils/urlUtils');
         const responseData = updated
             ? formatImageResponse(req, updated)
