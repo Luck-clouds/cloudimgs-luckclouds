@@ -14,6 +14,14 @@ const sharp = require('sharp');
 const router = express.Router();
 const STORAGE_PATH = config.storage.path;
 
+function ensureUploadAvailable(req, res, next) {
+    // 外部源模式默认关闭上传入口，避免把文件写到与当前图库不同的目录。
+    if (config.imageSource?.enabled && !config.imageSource?.uploadEnabled) {
+        return res.status(403).json({ success: false, error: "当前外部图床模式已关闭上传入口" });
+    }
+    next();
+}
+
 function queueForMagicSearch(dbResult, relPath, filename, priority) {
     try {
         let imageId = dbResult.lastInsertRowid;
@@ -37,7 +45,7 @@ function getBaseUrl(req) {
 }
 
 // 1. Base64 上传
-router.post('/upload-base64', requirePassword, express.json({ limit: '50mb' }), async (req, res) => {
+router.post('/upload-base64', requirePassword, ensureUploadAvailable, express.json({ limit: '50mb' }), async (req, res) => {
     try {
         let dir = req.body.dir || req.query.dir || "";
         dir = dir.replace(/\\/g, "/");
@@ -102,7 +110,7 @@ router.post('/upload-base64', requirePassword, express.json({ limit: '50mb' }), 
 });
 
 // 1.0 URL 上传
-router.post('/upload-url', requirePassword, express.json({ limit: '10mb' }), async (req, res) => {
+router.post('/upload-url', requirePassword, ensureUploadAvailable, express.json({ limit: '10mb' }), async (req, res) => {
     try {
         const { url } = req.body;
         if (!url) {
@@ -174,7 +182,7 @@ router.post('/upload-url', requirePassword, express.json({ limit: '10mb' }), asy
 });
 
 // 1.1 上传图片 (Multer)
-router.post('/upload', requirePassword, upload.any(), handleMulterError, async (req, res) => {
+router.post('/upload', requirePassword, ensureUploadAvailable, upload.any(), handleMulterError, async (req, res) => {
     try {
         let dir = req.body.dir || req.query.dir || "";
         dir = dir.replace(/\\/g, "/");
@@ -239,7 +247,7 @@ router.post('/upload', requirePassword, upload.any(), handleMulterError, async (
 });
 
 // 1.2 处理图片（缩放+居中合成到指定尺寸）
-router.post('/process-image', requirePassword, upload.single("image"), async (req, res) => {
+router.post('/process-image', requirePassword, ensureUploadAvailable, upload.single("image"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "没有选择图片文件" });
@@ -363,7 +371,7 @@ router.post('/process-image', requirePassword, upload.single("image"), async (re
 });
 
 // 1.3 上传文件 (任意)
-router.post('/upload-file', requirePassword, uploadAny.single("file"), handleMulterError, async (req, res) => {
+router.post('/upload-file', requirePassword, ensureUploadAvailable, uploadAny.single("file"), handleMulterError, async (req, res) => {
 
     try {
         if (!req.file) return res.status(400).json({ success: false, error: "没有选择文件" });
@@ -381,7 +389,7 @@ router.post('/upload-file', requirePassword, uploadAny.single("file"), handleMul
         let displayName = req.file.originalname;
 
         if (customFilename) {
-            const safeCustom = sanitizeFilename(path.basename(customFilename));
+            let safeCustom = sanitizeFilename(path.basename(customFilename));
             const targetDir = safeJoin(STORAGE_PATH, dir);
             const oldPath = req.file.path;
             const newPath = path.join(targetDir, safeCustom);

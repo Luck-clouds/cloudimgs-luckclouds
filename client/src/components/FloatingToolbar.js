@@ -31,6 +31,8 @@ const FloatingToolbar = ({
   selectedCount,
   onBatchDelete,
   onBatchMove,
+  uploadEnabled = true,
+  refreshing = false,
 }) => {
   const [uploadVisible, setUploadVisible] = useState(false);
   const { token } = theme.useToken();
@@ -171,6 +173,7 @@ const FloatingToolbar = ({
             shape="circle" 
             icon={<ReloadOutlined />} 
             onClick={onRefresh} 
+            loading={refreshing}
             size="middle" // Reduced size
             type="text"
             style={buttonStyle}
@@ -194,7 +197,7 @@ const FloatingToolbar = ({
           />
         </Tooltip>
 
-        {isMobile && (
+        {isMobile && uploadEnabled && (
           <>
             <div style={{ width: 1, height: 16, background: isDarkMode ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)" }} />
 

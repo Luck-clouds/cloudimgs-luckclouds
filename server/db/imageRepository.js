@@ -1,13 +1,21 @@
 const db = require('./database');
 
 const insertImage = db.prepare(`
-  INSERT INTO images (filename, rel_path, size, mtime, upload_time, width, height, orientation, thumbhash, meta_json)
-  VALUES (@filename, @rel_path, @size, @mtime, @upload_time, @width, @height, @orientation, @thumbhash, @meta_json)
+  INSERT INTO images (
+    filename, rel_path, source_type, source_rel_path, source_abs_path, source_mtime, source_size, is_external,
+    size, mtime, upload_time, width, height, orientation, thumbhash, meta_json
+  )
+  VALUES (
+    @filename, @rel_path, @source_type, @source_rel_path, @source_abs_path, @source_mtime, @source_size, @is_external,
+    @size, @mtime, @upload_time, @width, @height, @orientation, @thumbhash, @meta_json
+  )
 `);
 
 const updateImage = db.prepare(`
   UPDATE images 
-  SET filename = @filename, size = @size, mtime = @mtime, upload_time = @upload_time, 
+  SET filename = @filename, source_type = @source_type, source_rel_path = @source_rel_path,
+      source_abs_path = @source_abs_path, source_mtime = @source_mtime, source_size = @source_size,
+      is_external = @is_external, size = @size, mtime = @mtime, upload_time = @upload_time, 
       width = @width, height = @height, orientation = @orientation, thumbhash = @thumbhash, meta_json = @meta_json
   WHERE rel_path = @rel_path
 `);
@@ -17,7 +25,15 @@ const getAllImagesQuery = db.prepare('SELECT * FROM images ORDER BY upload_time 
 const deleteImageByPath = db.prepare('DELETE FROM images WHERE rel_path = ?');
 const countImages = db.prepare('SELECT COUNT(*) as count FROM images');
 const getImagesByDir = db.prepare("SELECT * FROM images WHERE rel_path LIKE ? || '/%' ORDER BY upload_time DESC");
-const getAllSyncEntriesQuery = db.prepare('SELECT rel_path, mtime FROM images');
+const getAllSyncEntriesQuery = db.prepare(`
+  SELECT rel_path, mtime, source_type, source_rel_path, source_abs_path, source_mtime, source_size, is_external
+  FROM images
+`);
+const getSyncEntriesBySourceQuery = db.prepare(`
+  SELECT rel_path, mtime, source_type, source_rel_path, source_abs_path, source_mtime, source_size, is_external
+  FROM images
+  WHERE source_type = ?
+`);
 const getPreviewsQuery = db.prepare("SELECT * FROM images WHERE rel_path LIKE ? || '/%' ORDER BY upload_time DESC LIMIT ?");
 const countImagesByDirQuery = db.prepare("SELECT COUNT(*) as count FROM images WHERE rel_path LIKE ? || '/%'");
 const getAllImagesByViewsQuery = db.prepare('SELECT * FROM images ORDER BY views DESC');
@@ -170,26 +186,69 @@ const recordDailyViewQuery = db.prepare(`
 
 const getDailyStatsQuery = db.prepare('SELECT * FROM daily_stats ORDER BY date DESC LIMIT ?');
 const getTopImagesQuery = db.prepare('SELECT * FROM images ORDER BY views DESC LIMIT ?');
+const resetUploadStatsQuery = db.prepare(`
+  UPDATE daily_stats SET uploads_count = 0, uploads_size = 0
+`);
+const upsertUploadStatsRowQuery = db.prepare(`
+  INSERT INTO daily_stats (date, uploads_count, uploads_size, views_count, views_size)
+  VALUES (@date, @uploads_count, @uploads_size, 0, 0)
+  ON CONFLICT(date) DO UPDATE SET
+    uploads_count = excluded.uploads_count,
+    uploads_size = excluded.uploads_size
+`);
+const cleanupEmptyDailyStatsQuery = db.prepare(`
+  DELETE FROM daily_stats
+  WHERE uploads_count = 0 AND uploads_size = 0 AND views_count = 0 AND views_size = 0
+`);
+const aggregateUploadStatsQuery = db.prepare(`
+  SELECT substr(upload_time, 1, 10) AS date, COUNT(*) AS uploads_count, COALESCE(SUM(size), 0) AS uploads_size
+  FROM images
+  WHERE upload_time IS NOT NULL AND upload_time != ''
+  GROUP BY substr(upload_time, 1, 10)
+`);
+const rebuildUploadStatsTransaction = db.transaction(() => {
+    resetUploadStatsQuery.run();
+    const rows = aggregateUploadStatsQuery.all();
+    for (const row of rows) {
+        upsertUploadStatsRowQuery.run(row);
+    }
+    cleanupEmptyDailyStatsQuery.run();
+    return rows.length;
+});
+
+function normalizeImageRecord(image) {
+    return {
+        source_type: image.source_type || 'native',
+        source_rel_path: image.source_rel_path || image.rel_path,
+        source_abs_path: image.source_abs_path || null,
+        source_mtime: image.source_mtime ?? image.mtime ?? null,
+        source_size: image.source_size ?? image.size ?? null,
+        is_external: image.is_external ?? ((image.source_type && image.source_type !== 'native') ? 1 : 0),
+        ...image,
+    };
+}
 
 module.exports = {
     add: (image) => {
+        const normalizedImage = normalizeImageRecord(image);
         try {
-            return insertImage.run(image);
+            return insertImage.run(normalizedImage);
         } catch (e) {
             if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
                 // 如果已存在，尝试更新
                 // 目前仅记录日志或重新抛出，或者可以使用 INSERT OR REPLACE
-                console.warn(`Image ${image.rel_path} already exists in DB. Attempting update.`);
-                return updateImage.run(image);
+                console.warn(`Image ${normalizedImage.rel_path} already exists in DB. Attempting update.`);
+                return updateImage.run(normalizedImage);
             }
             throw e;
         }
     },
-    update: (image) => updateImage.run(image),
+    update: (image) => updateImage.run(normalizeImageRecord(image)),
     rename: (oldRelPath, newRelPath, newFilename) => renameImage(oldRelPath, newRelPath, newFilename),
     getByPath: (relPath) => getImageByPath.get(relPath),
     getAll: () => getAllImagesQuery.all(),
     getAllSyncEntries: () => getAllSyncEntriesQuery.all(),
+    getSyncEntriesBySource: (sourceType) => getSyncEntriesBySourceQuery.all(sourceType),
     getAllByViews: () => getAllImagesByViewsQuery.all(),
     delete: (relPath) => deleteImageByPath.run(relPath),
     count: () => countImages.get().count,
@@ -247,4 +306,5 @@ module.exports = {
     },
     getDailyStats: (limit = 30) => getDailyStatsQuery.all(limit),
     getTopImages: (limit = 10) => getTopImagesQuery.all(limit),
+    rebuildUploadStats: () => rebuildUploadStatsTransaction(),
 };

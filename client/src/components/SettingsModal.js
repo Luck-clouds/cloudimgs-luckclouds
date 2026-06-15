@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Modal, Slider, Button, theme } from "antd";
-import { SettingOutlined } from "@ant-design/icons";
+import { ReloadOutlined, SettingOutlined } from "@ant-design/icons";
 
-const SettingsModal = ({ open, onClose, settings, onSettingsChange }) => {
+const SettingsModal = ({ open, onClose, settings, onSettingsChange, onFullRebuild, rebuilding = false }) => {
   const [draft, setDraft] = useState(settings);
   const [saving, setSaving] = useState(false);
   const { token } = theme.useToken();
@@ -207,16 +207,27 @@ const SettingsModal = ({ open, onClose, settings, onSettingsChange }) => {
           padding: "16px 24px",
           borderTop: `1px solid ${token.colorBorderSecondary}`,
           display: "flex",
-          justifyContent: "flex-end",
+          justifyContent: "space-between",
+          alignItems: "center",
           gap: 10,
         }}
       >
-        <Button onClick={handleCancel} style={{ borderRadius: 10, height: 38 }}>
-          取消
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={onFullRebuild}
+          loading={rebuilding}
+          style={{ borderRadius: 10, height: 38 }}
+        >
+          全量重建
         </Button>
-        <Button type="primary" onClick={handleSave} loading={saving} style={{ borderRadius: 10, height: 38, fontWeight: 600 }}>
-          保存设置
-        </Button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button onClick={handleCancel} style={{ borderRadius: 10, height: 38 }}>
+            取消
+          </Button>
+          <Button type="primary" onClick={handleSave} loading={saving} style={{ borderRadius: 10, height: 38, fontWeight: 600 }}>
+            保存设置
+          </Button>
+        </div>
       </div>
     </Modal>
   );

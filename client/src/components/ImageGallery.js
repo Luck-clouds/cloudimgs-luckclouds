@@ -138,6 +138,7 @@ const ImageItem = ({
 }) => {
   const [loaded, setLoaded] = useState(false);
   const videoRef = useRef(null);
+  const isExternalFile = Boolean(image.isExternal);
   const {
     token: { colorBgContainer, colorPrimary },
   } = theme.useToken();
@@ -431,7 +432,7 @@ const ImageItem = ({
                 }}
               >
               </Button>
-              {!(/\.(mp4|webm)$/i.test(image.filename)) && (
+              {!isExternalFile && !(/\.(mp4|webm)$/i.test(image.filename)) && (
                 <Button
                   size="small"
                   type="text"
@@ -451,33 +452,35 @@ const ImageItem = ({
                 >
                 </Button>
               )}
-              <Popconfirm
-                title="确定删除?"
-                onConfirm={(e) => {
-                  e.stopPropagation();
-                  handleDelete(image.relPath);
-                }}
-                onCancel={(e) => {
-                  e?.stopPropagation();
-                }}
-                okText="是"
-                cancelText="否"
-              >
-                <Button
-                  size="small"
-                  type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    background: "rgba(0,0,0,0.4)",
-                    backdropFilter: "blur(4px)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "4px",
-                    fontSize: "12px",
+              {!isExternalFile && (
+                <Popconfirm
+                  title="确定删除?"
+                  onConfirm={(e) => {
+                    e.stopPropagation();
+                    handleDelete(image.relPath);
                   }}
-                />
-              </Popconfirm>
+                  onCancel={(e) => {
+                    e?.stopPropagation();
+                  }}
+                  okText="是"
+                  cancelText="否"
+                >
+                  <Button
+                    size="small"
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      background: "rgba(0,0,0,0.4)",
+                      backdropFilter: "blur(4px)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "4px",
+                      fontSize: "12px",
+                    }}
+                  />
+                </Popconfirm>
+              )}
             </div>
           </div>
         </div>
@@ -596,7 +599,7 @@ const MagicIcon = ({ active }) => (
   </div>
 );
 
-const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigger, isBatchMode = false, selectedItems = new Set(), onSelectionChange = () => { }, imageRadius = 0, currentTheme, onThemeChange, settings, onSettingsChange }) => {
+const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigger, isBatchMode = false, selectedItems = new Set(), onSelectionChange = () => { }, imageRadius = 0, currentTheme, onThemeChange, settings, onSettingsChange, onFullRebuild, rebuilding = false }) => {
   const {
     token: { colorBgContainer, colorPrimary, colorTextSecondary, colorText },
   } = theme.useToken();
@@ -649,6 +652,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
  // Thumbnail width from config (0 = use original)
  // Thumbnail width from config (0 = use original)
   const [thumbnailWidth, setThumbnailWidth] = useState(0);
+  const [uploadEnabled, setUploadEnabled] = useState(true);
 
   // Magic Search
   const [magicSearch, setMagicSearch] = useState(false);
@@ -660,13 +664,10 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
       try {
         const response = await api.get("/config");
         if (response.data.success) {
-          if (response.data.data?.upload?.thumbnailWidth) {
-            setThumbnailWidth(response.data.data.upload.thumbnailWidth);
-          }
-          if (response.data.data?.magicSearch?.enabled) {
-            setMagicSearchAvailable(true);
-            setMagicSearch(true); // Default to enabled
-          }
+          setThumbnailWidth(response.data.data?.upload?.thumbnailWidth || 0);
+          setUploadEnabled(response.data.data?.imageSource?.uploadEnabled !== false);
+          setMagicSearchAvailable(Boolean(response.data.data?.magicSearch?.enabled));
+          setMagicSearch(Boolean(response.data.data?.magicSearch?.enabled));
         }
       } catch (error) {
         console.warn("获取配置失败:", error);
@@ -1443,6 +1444,10 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
       message.warning("请先登录");
       return;
     }
+    if (!uploadEnabled) {
+      message.warning("当前外部图床模式已关闭上传入口");
+      return;
+    }
     if (!files || files.length === 0) return;
 
     // Filter images and videos
@@ -1529,6 +1534,10 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
   const handleUploadFilesFromUrl = async (url) => {
     if (!isAuthenticated) {
       message.warning("请先登录");
+      return;
+    }
+    if (!uploadEnabled) {
+      message.warning("当前外部图床模式已关闭上传入口");
       return;
     }
     if (!url) return;
@@ -1641,13 +1650,14 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [dir, isAuthenticated]); // Re-bind if dir changes so upload goes to correct dir
+  }, [dir, isAuthenticated, uploadEnabled]); // Re-bind if dir changes so upload goes to correct dir
 
   // Global Drag & Drop Listeners
   useEffect(() => {
     let dragCounter = 0;
 
     const handleDragEnter = (e) => {
+      if (!uploadEnabled) return;
       e.preventDefault();
       e.stopPropagation();
       dragCounter++;
@@ -1657,6 +1667,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
     };
 
     const handleDragLeave = (e) => {
+      if (!uploadEnabled) return;
       e.preventDefault();
       e.stopPropagation();
       dragCounter--;
@@ -1666,11 +1677,13 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
     };
 
     const handleDragOver = (e) => {
+      if (!uploadEnabled) return;
       e.preventDefault();
       e.stopPropagation();
     };
 
     const handleDrop = (e) => {
+      if (!uploadEnabled) return;
       e.preventDefault();
       e.stopPropagation();
       setIsDragOver(false);
@@ -1692,7 +1705,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [dir, isAuthenticated]);
+  }, [dir, isAuthenticated, uploadEnabled]);
 
   const handleDelete = async (relPath) => {
     try {
@@ -1944,7 +1957,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
       )}
 
       {/* Drag & Drop Overlay */}
-      {isDragOver && (
+      {isDragOver && uploadEnabled && (
         <div
           style={{
             position: 'fixed',
@@ -2095,7 +2108,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
             />
           </div>
           <div style={{ width: 180, transition: "width 0.3s ease" }}>
-            <DirectorySelector
+              <DirectorySelector
               value={dir}
               onChange={setDir}
               placeholder="所有目录"
@@ -2116,7 +2129,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
           />
           <div style={{ width: 200, transition: "width 0.3s ease" }}>
             <Input
-              placeholder={magicSearch ? "描述图片内容..." : "拖拽图片到页面即可上传..."}
+              placeholder={magicSearch ? "描述图片内容..." : uploadEnabled ? "拖拽图片到页面即可上传..." : "搜索图片..."}
               prefix={
                 magicSearchAvailable ? (
                   <div
@@ -2395,6 +2408,8 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
         onThemeChange={onThemeChange}
         settings={settings}
         onSettingsChange={onSettingsChange}
+        onFullRebuild={onFullRebuild}
+        rebuilding={rebuilding}
       />
 
       <CopyLinksModal />

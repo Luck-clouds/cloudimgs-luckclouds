@@ -37,6 +37,8 @@ function formatImageResponse(req, image) {
         uploadTime: image.upload_time,
         mtime: image.mtime,
         mime: image.mime_type, // Some places user mime_type
+        sourceType: image.source_type || "native",
+        isExternal: Boolean(image.is_external),
 
         // Merge extra fields if present
         ...meta,

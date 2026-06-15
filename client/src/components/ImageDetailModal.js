@@ -387,6 +387,7 @@ const ImageDetailModal = ({
     if (!file || !file.thumbhash) return null;
     return getThumbHashUrl(file.thumbhash);
   }, [file]);
+  const isExternalFile = Boolean(file?.isExternal);
   const hasThumb = !!thumbUrl;
   const isDarkBg = hasThumb || isDarkMode;
   const isLight = !isDarkBg;
@@ -750,6 +751,7 @@ const ImageDetailModal = ({
                     <EditOutlined style={{ color: secondaryTextColor }} />
                   }
                   onClick={() => setIsEditingName(!isEditingName)}
+                  disabled={isExternalFile}
                 />
               </div>
 
@@ -792,6 +794,7 @@ const ImageDetailModal = ({
                   type="link"
                   size="small"
                   onClick={() => setIsEditingDir(!isEditingDir)}
+                  disabled={isExternalFile}
                   style={{
                     padding: 0,
                     height: "auto",
@@ -846,12 +849,28 @@ const ImageDetailModal = ({
                 onConfirm={() => onDelete && onDelete(file.relPath)}
                 okText="是"
                 cancelText="否"
+                disabled={isExternalFile}
               >
-                <Button block ghost danger icon={<DeleteOutlined />} variant="outlined" color="danger">
+                <Button block ghost danger icon={<DeleteOutlined />} variant="outlined" color="danger" disabled={isExternalFile}>
                   删除
                 </Button>
               </Popconfirm>
             </div>
+
+            {isExternalFile && (
+              <div
+                style={{
+                  marginBottom: 24,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: hasThumb ? "rgba(255,255,255,0.12)" : inputBg,
+                  color: secondaryTextColor,
+                  fontSize: 12,
+                }}
+              >
+                当前文件来自外部图片源，云图侧仅提供索引、预览与分享，不直接改写源文件。
+              </div>
+            )}
 
             {/* Info Sections */}
             <Space direction="vertical" size={24} style={{ width: "100%" }}>

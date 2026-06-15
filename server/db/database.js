@@ -35,6 +35,12 @@ function init() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       filename TEXT NOT NULL,
       rel_path TEXT NOT NULL UNIQUE,
+      source_type TEXT NOT NULL DEFAULT 'native',
+      source_rel_path TEXT,
+      source_abs_path TEXT,
+      source_mtime INTEGER,
+      source_size INTEGER,
+      is_external INTEGER DEFAULT 0,
       size INTEGER,
       mtime INTEGER,
       upload_time TEXT,
@@ -97,8 +103,23 @@ function init() {
       db.prepare("ALTER TABLE images ADD COLUMN last_viewed INTEGER").run();
     }
 
+    const ensureColumn = (name, definition) => {
+      if (!columns.find(c => c.name === name)) {
+        console.log(`Migrating: Adding ${name} column to images`);
+        db.prepare(`ALTER TABLE images ADD COLUMN ${name} ${definition}`).run();
+      }
+    };
+
+    ensureColumn('source_type', "TEXT NOT NULL DEFAULT 'native'");
+    ensureColumn('source_rel_path', 'TEXT');
+    ensureColumn('source_abs_path', 'TEXT');
+    ensureColumn('source_mtime', 'INTEGER');
+    ensureColumn('source_size', 'INTEGER');
+    ensureColumn('is_external', 'INTEGER DEFAULT 0');
+
     // Create index safely after ensuring columns exist
     db.prepare("CREATE INDEX IF NOT EXISTS idx_views ON images(views DESC)").run();
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_source_type ON images(source_type)").run();
 
   } catch (e) {
     console.error("Migration failed:", e);

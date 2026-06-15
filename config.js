@@ -60,6 +60,21 @@ module.exports = {
     },
   },
 
+  // 外部图片源配置
+  imageSource: {
+    // 开启后，图库会读取 EasyImages 的实际图片目录并建立本地索引
+    enabled:true,
+
+    // 直接指向 EasyImages 的媒体根目录，例如 F:\EasyImages2.0\i
+    rootPath: process.env.EASYIMAGE_SOURCE_PATH || "C:/\Users/\云/\Pictures/\Screenshots",
+
+    // 保留原生上传逻辑作为兜底开关，默认开启
+    uploadEnabled:false,
+
+    // 右下角刷新时默认同时执行增量索引同步
+    scanOnRefresh:false,
+  },
+
   // 服务器配置
   server: {
     port: process.env.PORT || 3001,

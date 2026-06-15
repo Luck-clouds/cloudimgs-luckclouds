@@ -23,6 +23,15 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [settings, setSettings] = useState(defaultSettings);
+  const [publicConfig, setPublicConfig] = useState({
+    imageSource: {
+      enabled: false,
+      uploadEnabled: true,
+      scanOnRefresh: true,
+    },
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  const [fullRebuilding, setFullRebuilding] = useState(false);
 
   // Batch Mode State
   const [isBatchMode, setIsBatchMode] = useState(false);
@@ -101,6 +110,22 @@ function App() {
     }
   }, [passwordRequired, isAuthenticated]);
 
+  useEffect(() => {
+    if (passwordRequired && !isAuthenticated) {
+      return;
+    }
+
+    api.get("/config")
+      .then((res) => {
+        if (res.data?.success && res.data?.data) {
+          setPublicConfig(res.data.data);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load config:", err);
+      });
+  }, [passwordRequired, isAuthenticated]);
+
   // Save settings to database
   const handleSettingsChange = async (newSettings) => {
     try {
@@ -118,8 +143,41 @@ function App() {
     message.success("欢迎回来");
   };
 
-  const handleRefresh = () => {
+  const bumpRefreshTrigger = () => {
     setRefreshTrigger(prev => prev + 1);
+  };
+
+  const syncIndex = async ({ fullRebuild = false } = {}) => {
+    const setLoading = fullRebuild ? setFullRebuilding : setRefreshing;
+    setLoading(true);
+
+    try {
+      const response = await api.post("/sync", { fullRebuild });
+      const result = response.data?.data || {};
+      const modeText = fullRebuild ? "全量重建" : "刷新同步";
+      const statsText = typeof result.scanned === "number"
+        ? `，扫描 ${result.scanned} 个文件`
+        : "";
+      message.success(`${modeText}完成${statsText}`);
+      bumpRefreshTrigger();
+      return result;
+    } catch (error) {
+      const errMsg = error?.response?.data?.error || "同步失败";
+      message.error(errMsg);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (refreshing || fullRebuilding) return;
+    await syncIndex({ fullRebuild: false });
+  };
+
+  const handleFullRebuild = async () => {
+    if (refreshing || fullRebuilding) return;
+    await syncIndex({ fullRebuild: true });
   };
 
   const toggleBatchMode = () => {
@@ -279,6 +337,8 @@ function App() {
               onThemeChange={handleThemeChange}
               settings={settings}
               onSettingsChange={handleSettingsChange}
+              onFullRebuild={handleFullRebuild}
+              rebuilding={fullRebuilding}
             />
 
             {/* Password Overlay */}
@@ -302,6 +362,8 @@ function App() {
                 selectedCount={selectedItems.size}
                 onBatchDelete={handleBatchDelete}
                 onBatchMove={handleBatchMove}
+                uploadEnabled={publicConfig.imageSource?.uploadEnabled !== false}
+                refreshing={refreshing}
               />
             )}
 

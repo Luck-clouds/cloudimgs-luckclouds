@@ -6,17 +6,40 @@ const { requirePassword } = require('../middleware/auth');
 const imageRepository = require('../db/imageRepository');
 const { syncFileSystem } = require('../services/syncService');
 const { safeJoin, TRASH_DIR_NAME, CACHE_DIR_NAME } = require('../utils/fileUtils');
+const { isExternalRecord } = require('../services/mediaSourceService');
 
 const router = express.Router();
 const STORAGE_PATH = config.storage.path;
 
 const { getAlbumPasswordPath, verifyAlbumPassword } = require('../utils/albumUtils');
 
+function ensureExternalWritable(req, res) {
+    if (config.imageSource.enabled && !config.imageSource.uploadEnabled) {
+        res.status(403).json({ success: false, error: "当前外部图床模式为只读，已关闭本地写入" });
+        return false;
+    }
+    return true;
+}
+
+function getRecordOrNull(relPath) {
+    return imageRepository.getByPath(relPath.replace(/\\/g, "/"));
+}
+
+function ensureRecordWritable(relPath, res) {
+    const record = getRecordOrNull(relPath);
+    if (record && isExternalRecord(record)) {
+        res.status(403).json({ success: false, error: "外部图片源文件只读，请在外部图床中处理" });
+        return null;
+    }
+    return record;
+}
+
 // 0. 手动同步
 router.post('/sync', requirePassword, async (req, res) => {
     try {
-        await syncFileSystem();
-        res.json({ success: true, message: "同步完成" });
+        // 设置弹窗里的全量重建会走 fullRebuild=true，普通刷新仍走增量同步。
+        const result = await syncFileSystem({ fullRebuild: Boolean(req.body?.fullRebuild) });
+        res.json({ success: true, message: "同步完成", data: result });
     } catch (e) {
         console.error("Sync failed:", e);
         res.status(500).json({ success: false, error: "同步失败" });
@@ -63,7 +86,6 @@ router.post('/album/verify', requirePassword, async (req, res) => {
     }
 });
 
-// 2. 回收站逻辑
 async function moveToTrash(filePath) {
     try {
         const fileName = path.basename(filePath);
@@ -86,22 +108,21 @@ async function moveToTrash(filePath) {
 router.delete('/images/*', requirePassword, async (req, res) => {
     const relPath = decodeURIComponent(req.params[0]);
     try {
+        const record = ensureRecordWritable(relPath, res);
+        if (record === null) return;
+
         const filePath = safeJoin(STORAGE_PATH, relPath);
         if (await fs.pathExists(filePath)) {
             await moveToTrash(filePath);
 
-            // 移除 thumbhash
             const dir = path.dirname(filePath);
             const filename = path.basename(filePath);
             const cacheFile = path.join(dir, CACHE_DIR_NAME, `${filename}.th`);
             if (await fs.pathExists(cacheFile)) await fs.remove(cacheFile);
 
-            // 从 DB 移除
             imageRepository.delete(relPath);
-
             res.json({ success: true });
         } else {
-            // 如果不在磁盘上但在 DB 中？
             imageRepository.delete(relPath);
             res.status(404).json({ error: "图片不存在 (但在数据库中已清理)" });
         }
@@ -115,10 +136,12 @@ router.delete('/images/*', requirePassword, async (req, res) => {
 router.delete('/files/*', requirePassword, async (req, res) => {
     const relPath = decodeURIComponent(req.params[0]);
     try {
+        const record = ensureRecordWritable(relPath, res);
+        if (record === null) return;
+
         const filePath = safeJoin(STORAGE_PATH, relPath);
         if (await fs.pathExists(filePath)) {
             await moveToTrash(filePath);
-            // 如果存在则从 DB 移除（可能是通过 upload-file 上传的）
             imageRepository.delete(relPath);
             res.json({ success: true, message: "文件已移至回收站" });
         } else {
@@ -133,9 +156,19 @@ router.delete('/files/*', requirePassword, async (req, res) => {
 // 5. 批量移动
 router.post('/batch/move', requirePassword, async (req, res) => {
     try {
+        if (!ensureExternalWritable(req, res)) return;
+
         const { files, targetDir } = req.body;
         if (!Array.isArray(files) || files.length === 0) {
             return res.status(400).json({ error: "未选择文件" });
+        }
+
+        const readonlyFile = files.find(file => {
+            const record = getRecordOrNull(decodeURIComponent(file));
+            return record && isExternalRecord(record);
+        });
+        if (readonlyFile) {
+            return res.status(403).json({ success: false, error: "外部图片源文件只读，不能批量移动" });
         }
 
         let newDir = targetDir || "";
@@ -156,7 +189,6 @@ router.post('/batch/move', requirePassword, async (req, res) => {
                     let newRelPath = path.join(newDir, filename).replace(/\\/g, "/");
                     let newFilePath = safeJoin(STORAGE_PATH, newRelPath);
 
-                    // Handle duplicates
                     if (await fs.pathExists(newFilePath)) {
                         let counter = 1;
                         const ext = path.extname(filename);
@@ -171,12 +203,6 @@ router.post('/batch/move', requirePassword, async (req, res) => {
 
                     await fs.move(oldFilePath, newFilePath);
 
-                    // 更新 DB：删除旧的，添加新的（重新扫描元数据？或者只是更新路径？）
-                    // 元数据应该不会改变太多，除非移动影响 mtime（通常在同一 FS 上不会）
-                    // 但更新路径最简单。
-                    // 但是，thumbhash 缓存文件也需要移动！
-
-                    // 移动 thumbhash
                     const oldCachePath = path.join(path.dirname(oldFilePath), CACHE_DIR_NAME, `${filename}.th`);
                     if (await fs.pathExists(oldCachePath)) {
                         const newCacheDir = path.join(path.dirname(newFilePath), CACHE_DIR_NAME);
@@ -185,23 +211,13 @@ router.post('/batch/move', requirePassword, async (req, res) => {
                         await fs.move(oldCachePath, newCachePath);
                     }
 
-                    // 更新 DB
                     const dbImage = imageRepository.getByPath(oldRelPath);
                     if (dbImage) {
                         dbImage.rel_path = newRelPath;
                         dbImage.filename = path.basename(newFilePath);
-                        // 更新缓存中的 thumbhash 路径？不，DB 直接在 'thumbhash' 列中存储内容？
-                        // 等等，Schema 中 'thumbhash' 是 TEXT (base64)。
-                        // 所以我们不需要更新 DB thumbhash 内容，除非重新生成。
-                        // 我们只需更新路径。
+                        dbImage.source_rel_path = newRelPath;
                         imageRepository.delete(oldRelPath);
                         imageRepository.add(dbImage);
-                        // 或者在此处更新 rel_path = old... 但主键是 ID。
-                        // rel_path 是唯一的。
-                        // 其实 `imageRepository.update` 使用 rel_path 作为键。
-                        // 所以我不能轻易用我写的 `update` 函数更改 rel_path。
-                        // `updateImage` SQL: WHERE rel_path = @relPath。
-                        // 所以我必须删除并添加。
                     }
 
                     successCount++;
@@ -214,7 +230,6 @@ router.post('/batch/move', requirePassword, async (req, res) => {
             }
         }
         res.json({ success: true, successCount, failCount });
-
     } catch (e) {
         res.status(500).json({ error: "批量移动失败" });
     }
@@ -223,10 +238,11 @@ router.post('/batch/move', requirePassword, async (req, res) => {
 // 6. 创建目录
 router.post('/directories', requirePassword, async (req, res) => {
     try {
+        if (!ensureExternalWritable(req, res)) return;
+
         const { name } = req.body;
         if (!name) return res.status(400).json({ error: "Missing directory name" });
 
-        // Basic validation
         if (name.includes("..") || name.includes("\\") || name.startsWith("/")) {
             return res.status(400).json({ error: "Invalid directory name" });
         }
@@ -253,13 +269,16 @@ router.put('/images/*', requirePassword, async (req, res) => {
         return res.status(400).json({ success: false, error: "新文件名不能为空" });
     }
 
-    // 安全校验：不允许路径穿越或绝对路径
     const safeName = path.basename(newName.trim());
     if (!safeName || safeName !== newName.trim()) {
         return res.status(400).json({ success: false, error: "非法文件名" });
     }
 
     try {
+        if (!ensureExternalWritable(req, res)) return;
+        const record = ensureRecordWritable(relPath, res);
+        if (record === null) return;
+
         const oldFilePath = safeJoin(STORAGE_PATH, relPath);
         if (!await fs.pathExists(oldFilePath)) {
             return res.status(404).json({ success: false, error: "原文件不存在" });
@@ -269,20 +288,16 @@ router.put('/images/*', requirePassword, async (req, res) => {
         const newRelPath = (dir && dir !== '.') ? `${dir}/${safeName}` : safeName;
         const newFilePath = safeJoin(STORAGE_PATH, newRelPath);
 
-        // 不允许重命名为自身
         if (oldFilePath === newFilePath) {
             return res.json({ success: true, data: { relPath, filename: path.basename(relPath) } });
         }
 
-        // 目标已存在则报错
         if (await fs.pathExists(newFilePath)) {
             return res.status(409).json({ success: false, error: "目标文件名已存在" });
         }
 
-        // 重命名文件
         await fs.rename(oldFilePath, newFilePath);
 
-        // 移动 thumbhash 缓存（如存在）
         const oldCacheFile = path.join(path.dirname(oldFilePath), CACHE_DIR_NAME, `${path.basename(oldFilePath)}.th`);
         if (await fs.pathExists(oldCacheFile)) {
             const newCacheFile = path.join(path.dirname(newFilePath), CACHE_DIR_NAME, `${safeName}.th`);
@@ -290,9 +305,7 @@ router.put('/images/*', requirePassword, async (req, res) => {
             await fs.rename(oldCacheFile, newCacheFile);
         }
 
-        // 原子更新数据库
         const updated = imageRepository.rename(relPath, newRelPath, safeName);
-
         const { formatImageResponse } = require('../utils/urlUtils');
         const responseData = updated
             ? formatImageResponse(req, updated)

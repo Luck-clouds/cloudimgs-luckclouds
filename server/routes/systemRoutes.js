@@ -25,7 +25,7 @@ router.get('/config', (req, res) => {
     res.json({
         success: true,
         data: {
-        upload: {
+            upload: {
                 maxFileSize: config.upload.maxFileSize,
                 allowedExtensions: config.upload.allowedExtensions,
                 thumbnailWidth: config.upload.thumbnailWidth,
@@ -35,6 +35,12 @@ router.get('/config', (req, res) => {
             },
             magicSearch: {
                 enabled: config.magicSearch.enabled
+            },
+            // 前端只需要知道当前是否启用外部源、是否允许上传和刷新时是否同步。
+            imageSource: {
+                enabled: Boolean(config.imageSource?.enabled),
+                uploadEnabled: Boolean(config.imageSource?.uploadEnabled),
+                scanOnRefresh: config.imageSource?.scanOnRefresh !== false,
             }
         }
     });
