@@ -320,6 +320,33 @@ const mockAdapter = async (config) => {
         return;
       }
 
+      // Stats Overview
+      if (cleanUrl.startsWith("/stats/overview") && method === "get") {
+        resolve({
+          data: {
+            success: true,
+            data: {
+              rootPath: "F:/mock/uploads",
+              storage: {
+                totalBytes: 512 * 1024 * 1024 * 1024,
+                usedBytes: 318 * 1024 * 1024 * 1024,
+                usagePercent: 62.11,
+              },
+              media: {
+                imageCount: 2486,
+                imageBytes: 1865 * 1024 * 1024,
+                otherBytes: 924 * 1024 * 1024,
+              },
+            }
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return;
+      }
+
       // Semantic Search
       if (cleanUrl === "/search/semantic" && method === "post") {
         resolve({

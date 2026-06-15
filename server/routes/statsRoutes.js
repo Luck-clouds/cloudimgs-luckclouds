@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const imageRepository = require('../db/imageRepository');
 const { requirePassword } = require('../middleware/auth');
+const { getDashboardOverviewStats } = require('../services/dashboardStatsService');
 
 // 获取每日流量统计
 router.get('/traffic', requirePassword, async (req, res) => {
@@ -43,6 +44,17 @@ router.get('/top', requirePassword, async (req, res) => {
     } catch (e) {
         console.error("Fetch top images error:", e);
         res.status(500).json({ error: "获取热门图片失败" });
+    }
+});
+
+// 获取看板概览统计
+router.get('/overview', requirePassword, async (req, res) => {
+    try {
+        const overview = await getDashboardOverviewStats();
+        res.json({ success: true, data: overview });
+    } catch (e) {
+        console.error("Fetch dashboard overview error:", e);
+        res.status(500).json({ error: "获取看板概览失败" });
     }
 });
 

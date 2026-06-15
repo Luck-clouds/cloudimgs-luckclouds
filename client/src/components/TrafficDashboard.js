@@ -2,8 +2,13 @@ import React, { useEffect, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { Card, Row, Col, Typography, Table, Spin, message, Empty, Segmented } from 'antd';
 import { AreaChartOutlined, FireOutlined, EyeOutlined, VideoCameraOutlined } from '@ant-design/icons';
-import api from '../utils/api';
 import dayjs from 'dayjs';
+import { fetchTrafficDashboardData } from '../utils/trafficDashboardData';
+import {
+    buildTrafficTrendOption,
+    buildStorageUsageOption,
+    buildMediaSummaryOption,
+} from '../utils/trafficDashboardCharts';
 
 const { Title, Text } = Typography;
 
@@ -11,23 +16,17 @@ const TrafficDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [trafficData, setTrafficData] = useState([]);
     const [topImages, setTopImages] = useState([]);
+    const [overview, setOverview] = useState(null);
     const [days, setDays] = useState(30);
 
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const [trafficRes, topRes] = await Promise.all([
-                    api.get(`/stats/traffic?days=${days}`),
-                    api.get('/stats/top?limit=10')
-                ]);
-
-                if (trafficRes.data.success) {
-                    setTrafficData(trafficRes.data.data);
-                }
-                if (topRes.data.success) {
-                    setTopImages(topRes.data.data);
-                }
+                const data = await fetchTrafficDashboardData(days);
+                setTrafficData(data.trafficData);
+                setTopImages(data.topImages);
+                setOverview(data.overview);
             } catch (e) {
                 console.error(e);
                 message.error("获取统计数据失败");
@@ -38,50 +37,9 @@ const TrafficDashboard = () => {
         fetchData();
     }, [days]);
 
-    // Chart Configs
-    const trafficOption = {
-        title: { text: '流量与上传趋势', left: 'center' },
-        tooltip: { trigger: 'axis' },
-        legend: { data: ['访问流量 (MB)', '上传流量 (MB)', '访问次数', '上传次数'], bottom: 0 },
-        grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
-        xAxis: { type: 'category', data: trafficData.map(d => d.date) },
-        yAxis: [
-            { type: 'value', name: '流量 (MB)', position: 'left' },
-            { type: 'value', name: '次数', position: 'right' }
-        ],
-        series: [
-            {
-                name: '访问流量 (MB)',
-                type: 'line',
-                smooth: true,
-                data: trafficData.map(d => (d.views_size / 1024 / 1024).toFixed(2)),
-                areaStyle: { opacity: 0.1 },
-                itemStyle: { color: '#52c41a' }
-            },
-            {
-                name: '上传流量 (MB)',
-                type: 'line',
-                smooth: true,
-                data: trafficData.map(d => (d.uploads_size / 1024 / 1024).toFixed(2)),
-                areaStyle: { opacity: 0.1 },
-                itemStyle: { color: '#1890ff' }
-            },
-            {
-                name: '访问次数',
-                type: 'bar',
-                yAxisIndex: 1,
-                data: trafficData.map(d => d.views_count),
-                itemStyle: { color: '#95de64', opacity: 0.5 }
-            },
-            {
-                name: '上传次数',
-                type: 'bar',
-                yAxisIndex: 1,
-                data: trafficData.map(d => d.uploads_count),
-                itemStyle: { color: '#69c0ff', opacity: 0.5 }
-            }
-        ]
-    };
+    const trafficOption = buildTrafficTrendOption(trafficData);
+    const storageUsageOption = buildStorageUsageOption(overview);
+    const mediaSummaryOption = buildMediaSummaryOption(overview);
 
     const topImagesColumns = [
         {
@@ -149,6 +107,27 @@ const TrafficDashboard = () => {
                         ) : (
                             <Empty description="暂无流量数据" />
                         )}
+                    </Card>
+                </Col>
+
+                <Col span={24}>
+                    <Card style={{ borderRadius: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+                        <Row gutter={[20, 20]}>
+                            <Col xs={24} lg={12}>
+                                {overview ? (
+                                    <ReactECharts option={storageUsageOption} style={{ height: 360 }} />
+                                ) : (
+                                    <Empty description="暂无存储统计数据" />
+                                )}
+                            </Col>
+                            <Col xs={24} lg={12}>
+                                {overview ? (
+                                    <ReactECharts option={mediaSummaryOption} style={{ height: 360 }} />
+                                ) : (
+                                    <Empty description="暂无媒体统计数据" />
+                                )}
+                            </Col>
+                        </Row>
                     </Card>
                 </Col>
 
