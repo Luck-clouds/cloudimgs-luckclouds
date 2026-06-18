@@ -33,6 +33,7 @@ const FloatingToolbar = ({
   onBatchMove,
   uploadEnabled = true,
   refreshing = false,
+  batchDeleteDisabled = false,
 }) => {
   const [uploadVisible, setUploadVisible] = useState(false);
   const { token } = theme.useToken();
@@ -112,6 +113,7 @@ const FloatingToolbar = ({
                 okText="是"
                 cancelText="否"
                 placement="topRight"
+                disabled={batchDeleteDisabled}
             >
                 <Tooltip title="批量删除" placement="top">
                 <Button
@@ -120,6 +122,7 @@ const FloatingToolbar = ({
                     danger
                     type="primary"
                     size="middle"
+                    disabled={batchDeleteDisabled}
                     style={{
                         ...buttonStyle,
                         color: '#fff', 

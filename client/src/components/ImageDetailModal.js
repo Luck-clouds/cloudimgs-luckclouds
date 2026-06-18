@@ -17,6 +17,7 @@ import {
   RightOutlined,
   CopyOutlined,
   EditOutlined,
+  PlusOutlined,
   FolderOutlined,
   DownloadOutlined,
   DeleteOutlined,
@@ -70,6 +71,28 @@ const formatExposureTime = (val) => {
   return `1/${Math.round(1 / num)}s`;
 };
 
+const hexToRgba = (hex, alpha) => {
+  if (!hex || typeof hex !== "string") {
+    return `rgba(95, 140, 255, ${alpha})`;
+  }
+
+  const normalized = hex.replace("#", "").trim();
+  const hexValue = normalized.length === 3
+    ? normalized.split("").map((char) => char + char).join("")
+    : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(hexValue)) {
+    return `rgba(95, 140, 255, ${alpha})`;
+  }
+
+  const r = parseInt(hexValue.slice(0, 2), 16);
+  const g = parseInt(hexValue.slice(2, 4), 16);
+  const b = parseInt(hexValue.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const getTagAccentColor = (tag) => tag?.color || "#6b8cff";
+
 const ImageDetailModal = ({
   visible,
   onCancel,
@@ -81,6 +104,7 @@ const ImageDetailModal = ({
   hasPrev,
   onDelete,
   onUpdate, // Callback when file is renamed or moved
+  onTagsChange,
 }) => {
   const {
     token: { colorBgContainer, colorText, colorTextSecondary, colorPrimary },
@@ -102,6 +126,11 @@ const ImageDetailModal = ({
   const [dirValue, setDirValue] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [tags, setTags] = useState([]);
+  const [tagInput, setTagInput] = useState("");
+  const [tagLoading, setTagLoading] = useState(false);
+  const [tagSaving, setTagSaving] = useState(false);
+  const [isTagEditorVisible, setIsTagEditorVisible] = useState(false);
   const videoRef = useRef(null);
   const scrollLockRef = useRef(null);
   const touchStartXRef = useRef(null);
@@ -148,6 +177,9 @@ const ImageDetailModal = ({
       setPreviewLocation("");
       setIsEditingName(false);
       setIsEditingDir(false);
+      setTags([]);
+      setTagInput("");
+      setIsTagEditorVisible(false);
 
       const ext = file.filename.includes(".")
         ? file.filename.substring(file.filename.lastIndexOf("."))
@@ -171,6 +203,21 @@ const ImageDetailModal = ({
           }
         })
         .catch(() => { });
+
+      if (file.id) {
+        setTagLoading(true);
+        api
+          .get(`/images/${file.id}/tags`)
+          .then((res) => {
+            if (active && res.data?.success) {
+              setTags(res.data.data || []);
+            }
+          })
+          .catch(() => { })
+          .finally(() => {
+            if (active) setTagLoading(false);
+          });
+      }
 
       return () => {
         active = false;
@@ -383,6 +430,49 @@ const ImageDetailModal = ({
     }
   };
 
+  const handleAddTags = async () => {
+    if (!file?.id) return;
+    const tagNames = tagInput
+      .split(/[,\n，]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (tagNames.length === 0) return;
+
+    try {
+      setTagSaving(true);
+      const res = await api.post(`/images/${file.id}/tags`, { tagNames });
+      if (res.data?.success) {
+        setTags(res.data.data || []);
+        setTagInput("");
+        setIsTagEditorVisible(false);
+        onTagsChange && onTagsChange();
+        message.success("标签已更新");
+      }
+    } catch (e) {
+      message.error(e?.response?.data?.error || "添加标签失败");
+    } finally {
+      setTagSaving(false);
+    }
+  };
+
+  const handleRemoveTag = async (tagId) => {
+    if (!file?.id) return;
+    try {
+      setTagSaving(true);
+      const res = await api.delete(`/images/${file.id}/tags/${tagId}`);
+      if (res.data?.success) {
+        setTags(res.data.data || []);
+        onTagsChange && onTagsChange();
+        message.success("标签已移除");
+      }
+    } catch (e) {
+      message.error("移除标签失败");
+    } finally {
+      setTagSaving(false);
+    }
+  };
+
   const thumbUrl = React.useMemo(() => {
     if (!file || !file.thumbhash) return null;
     return getThumbHashUrl(file.thumbhash);
@@ -406,6 +496,20 @@ const ImageDetailModal = ({
     : isDarkMode
       ? "rgba(255,255,255,0.1)"
       : "rgba(0,0,0,0.06)";
+
+  const getTagStyle = (tag) => {
+    const accent = getTagAccentColor(tag);
+    return {
+      color: accent,
+      border: `1px solid ${hexToRgba(accent, hasThumb ? 0.3 : 0.25)}`,
+      backgroundColor: hexToRgba(accent, hasThumb ? 0.16 : 0.12),
+      boxShadow: hasThumb
+        ? `0 2px 8px ${hexToRgba("#000000", 0.08)}`
+        : `0 2px 8px ${hexToRgba("#000000", 0.05)}`,
+      backdropFilter: "blur(8px)",
+      WebkitBackdropFilter: "blur(8px)",
+    };
+  };
 
   if (!file) return null;
 
@@ -873,6 +977,126 @@ const ImageDetailModal = ({
 
             {/* Info Sections */}
             <Space direction="vertical" size={24} style={{ width: "100%" }}>
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: tertiaryTextColor,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    标签
+                  </div>
+                    <Button
+                      type="text"
+                      icon={<PlusOutlined style={{ color: secondaryTextColor }} />}
+                      onClick={() => setIsTagEditorVisible((prev) => !prev)}
+                      style={{ paddingInline: 6 }}
+                    />
+                  </div>
+                  {isTagEditorVisible && (
+                    <div style={{ display: "flex", gap: 8, marginBottom: tags.length > 0 ? 12 : 0 }}>
+                      <Input
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onPressEnter={handleAddTags}
+                        placeholder="输入标签，可用逗号分隔"
+                        style={{
+                          background: hasThumb ? "rgba(255,255,255,0.12)" : colorBgContainer,
+                          color: textColor,
+                          border: "none",
+                        }}
+                      />
+                      <Button
+                        type="primary"
+                        ghost={!isLight}
+                        loading={tagSaving}
+                        onClick={handleAddTags}
+                        >
+                          添加
+                        </Button>
+                    </div>
+                  )}
+                  {tags.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, minHeight: 32 }}>
+                    {tags.map((tag) => {
+                      const style = getTagStyle(tag);
+                        return (
+                          <div
+                            key={tag.id}
+                            style={{
+                              position: "relative",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              textAlign: "center",
+                              padding: "5px 12px",
+                              paddingRight: 12,
+                              borderRadius: 5,
+                              fontSize: 13,
+                              fontWeight: 700,
+                              lineHeight: 1.05,
+                              ...style,
+                            }}
+                          >
+                          <span>{tag.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(tag.id)}
+                            style={{
+                              position: "absolute",
+                              top: -6,
+                              right: -6,
+                              width: 12,
+                              height: 12,
+                              borderRadius: "50%",
+                              border: `1px solid ${hexToRgba(getTagAccentColor(tag), hasThumb ? 0.32 : 0.24)}`,
+                              background: hasThumb
+                                ? hexToRgba(getTagAccentColor(tag), 0.18)
+                                : "rgba(255,255,255,0.85)",
+                              color: getTagAccentColor(tag),
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 12,
+                              fontWeight: 700,
+                              lineHeight: 1,
+                              padding: 0,
+                              boxShadow: `0 2px 8px ${hexToRgba(getTagAccentColor(tag), 0.14)}`,
+                              backdropFilter: "blur(8px)",
+                              WebkitBackdropFilter: "blur(8px)",
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {tagLoading && (
+                      <Text style={{ fontSize: 12, color: secondaryTextColor }}>
+                        正在加载标签...
+                      </Text>
+                    )}
+                    </div>
+                  )}
+                  {tagLoading && tags.length === 0 && (
+                    <Text style={{ fontSize: 12, color: secondaryTextColor }}>
+                      正在加载标签...
+                    </Text>
+                  )}
+              </div>
+
               {/* Basic Info */}
               <div>
                 <div

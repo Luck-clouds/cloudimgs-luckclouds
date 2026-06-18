@@ -660,7 +660,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
 
   // Fetch config to get thumbnailWidth
   useEffect(() => {
-    const fetchConfig = async () => {
+      const fetchConfig = async () => {
       try {
         const response = await api.get("/config");
         if (response.data.success) {
@@ -672,9 +672,10 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
       } catch (error) {
         console.warn("获取配置失败:", error);
       }
-    };
-    fetchConfig();
-  }, [api]);
+      };
+      fetchConfig();
+    }, [api]);
+
 
   useEffect(() => {
     if (!hoverKey) {
@@ -1139,13 +1140,13 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
     totalPages: 0,
   });
 
-  async function fetchImages(
-    targetDir = dir,
-    targetPage = currentPage,
-    targetPageSize = pageSize,
-    targetSearch = searchText,
-    append = false
-  ) {
+    async function fetchImages(
+      targetDir = dir,
+      targetPage = currentPage,
+      targetPageSize = pageSize,
+      targetSearch = searchText,
+      append = false
+    ) {
     // Check authentication first
     if (isAuthenticated === false) {
       return;
@@ -1155,17 +1156,21 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
       setLoadingMore(true);
     } else {
       setLoading(true);
-    }
-    try {
-      const params = {
-        page: targetPage,
-        pageSize: targetPageSize,
-        ...(targetSearch && { search: targetSearch }),
-        ...(targetDir && { dir: targetDir }),
-      };
+      }
+      try {
+        const params = {
+          page: targetPage,
+          pageSize: targetPageSize,
+          ...(targetSearch && { search: targetSearch }),
+          ...(targetDir && { dir: targetDir }),
+        };
+        const headers = {};
+        if (targetDir && albumPasswords[targetDir]) {
+          headers["x-album-password"] = albumPasswords[targetDir];
+        }
 
-      // Magic Search Branch
-      if (magicSearchAvailable && magicSearch && targetSearch && !targetDir) {
+        // Magic Search Branch
+        if (magicSearchAvailable && magicSearch && targetSearch && !targetDir) {
         // Only allow global search for now, or filter by dir in backend? 
         // Backend implementation of 'search' currently searches ALL vectors.
         // If we want to support directory filter, we need to update searchRoutes/ClipService.
@@ -1184,12 +1189,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
         }
       }
 
-      const headers = {};
-      if (targetDir && albumPasswords[targetDir]) {
-        headers["x-album-password"] = albumPasswords[targetDir];
-      }
-
-      const res = await api.get("/images", { params, headers });
+        const res = await api.get("/images", { params, headers });
       if (res.data.success) {
         setImages((prev) => (append ? prev.concat(res.data.data) : res.data.data));
         setPagination(res.data.pagination);
@@ -1905,22 +1905,22 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
     setPasswordPromptVisible(false);
 
     setLoading(true);
-    const params = {
-      page: 1,
-      pageSize: pageSize,
-      dir: pendingDir,
-      search: searchText
-    };
-    const headers = { "x-album-password": passwordInput };
+      const params = {
+        page: 1,
+        pageSize: pageSize,
+        dir: pendingDir,
+        search: searchText
+      };
+      const headers = { "x-album-password": passwordInput };
 
-    api.get("/images", { params, headers })
-      .then(res => {
-        if (res.data.success) {
-          setImages(res.data.data);
-          setPagination(res.data.pagination);
-          setHasMore(res.data.pagination.current < res.data.pagination.totalPages);
-        }
-      })
+      api.get("/images", { params, headers })
+        .then(res => {
+          if (res.data.success) {
+            setImages(res.data.data);
+            setPagination(res.data.pagination);
+            setHasMore(res.data.pagination.current < res.data.pagination.totalPages);
+          }
+        })
       .catch(e => {
         message.error("密码错误或访问失败");
         // Clear invalid password

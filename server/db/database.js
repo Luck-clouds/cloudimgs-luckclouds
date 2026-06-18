@@ -35,6 +35,10 @@ function init() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       filename TEXT NOT NULL,
       rel_path TEXT NOT NULL UNIQUE,
+      asset_hash TEXT,
+      hash_version TEXT,
+      hash_status TEXT,
+      hash_generated_at INTEGER,
       source_type TEXT NOT NULL DEFAULT 'native',
       source_rel_path TEXT,
       source_abs_path TEXT,
@@ -78,6 +82,23 @@ function init() {
         views_size INTEGER DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL UNIQUE,
+        color TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS image_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        asset_hash TEXT NOT NULL,
+        tag_id INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(asset_hash, tag_id)
+    );
+
     CREATE TABLE IF NOT EXISTS user_settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -116,10 +137,19 @@ function init() {
     ensureColumn('source_mtime', 'INTEGER');
     ensureColumn('source_size', 'INTEGER');
     ensureColumn('is_external', 'INTEGER DEFAULT 0');
+    ensureColumn('asset_hash', 'TEXT');
+    ensureColumn('hash_version', 'TEXT');
+    ensureColumn('hash_status', 'TEXT');
+    ensureColumn('hash_generated_at', 'INTEGER');
 
     // Create index safely after ensuring columns exist
     db.prepare("CREATE INDEX IF NOT EXISTS idx_views ON images(views DESC)").run();
     db.prepare("CREATE INDEX IF NOT EXISTS idx_source_type ON images(source_type)").run();
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_asset_hash ON images(asset_hash)").run();
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_hash_status ON images(hash_status)").run();
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_tags_normalized_name ON tags(normalized_name)").run();
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_image_tags_asset_hash ON image_tags(asset_hash)").run();
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_image_tags_tag_id ON image_tags(tag_id)").run();
 
   } catch (e) {
     console.error("Migration failed:", e);

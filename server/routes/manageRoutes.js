@@ -213,11 +213,15 @@ router.post('/batch/move', requirePassword, async (req, res) => {
 
                     const dbImage = imageRepository.getByPath(oldRelPath);
                     if (dbImage) {
-                        dbImage.rel_path = newRelPath;
-                        dbImage.filename = path.basename(newFilePath);
-                        dbImage.source_rel_path = newRelPath;
-                        imageRepository.delete(oldRelPath);
-                        imageRepository.add(dbImage);
+                        const updatedStats = await fs.stat(newFilePath);
+                        imageRepository.rename(oldRelPath, newRelPath, path.basename(newFilePath), {
+                            source_rel_path: newRelPath,
+                            source_abs_path: newFilePath,
+                            source_mtime: updatedStats.mtimeMs,
+                            source_size: updatedStats.size,
+                            mtime: updatedStats.mtimeMs,
+                            size: updatedStats.size,
+                        });
                     }
 
                     successCount++;

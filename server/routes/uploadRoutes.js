@@ -8,6 +8,8 @@ const { saveBase64Image, safeJoin, sanitizeFilename, generateThumbHash, download
 const { formatImageResponse } = require('../utils/urlUtils');
 const imageRepository = require('../db/imageRepository');
 const { getFileMetadata, parseAudioDuration } = require('../services/metadataService');
+const { createHashFields, computeAssetHash } = require('../services/assetHashService');
+const { validateStoredMediaFile } = require('../utils/mediaValidation');
 const clipService = require('../services/clipService'); // 引入 ClipService
 const sharp = require('sharp');
 
@@ -44,6 +46,24 @@ function getBaseUrl(req) {
     return `${protocol}://${host}`;
 }
 
+async function buildIndexPayload(filePath, relPath, filename, metadata) {
+    const assetHash = await computeAssetHash(filePath);
+    return {
+        filename,
+        rel_path: relPath,
+        ...createHashFields(assetHash),
+        ...metadata,
+    };
+}
+
+async function ensureUploadedMediaSafe(filePath) {
+    const isValid = await validateStoredMediaFile(filePath);
+    if (!isValid) {
+        await fs.remove(filePath);
+        throw new Error('文件内容与媒体类型不匹配，已拒绝上传');
+    }
+}
+
 // 1. Base64 上传
 router.post('/upload-base64', requirePassword, ensureUploadAvailable, express.json({ limit: '50mb' }), async (req, res) => {
     try {
@@ -56,6 +76,7 @@ router.post('/upload-base64', requirePassword, ensureUploadAvailable, express.js
 
         const { filename, filePath, size, mimetype } = await saveBase64Image(req.body.base64Image, dir);
         const relPath = path.join(dir, filename).replace(/\\/g, "/");
+        await ensureUploadedMediaSafe(filePath);
 
         // 生成元数据和 DB 条目
         const metadata = await getFileMetadata(filePath, relPath);
@@ -70,11 +91,12 @@ router.post('/upload-base64', requirePassword, ensureUploadAvailable, express.js
 
         // 确保文件名在 DB 对象中设置（getFileMetadata 返回带有 size, mtime 等的对象）
         // imageRepository 期望：filename, rel_path, ...metadata
-        const dbResult = imageRepository.add({
-            filename: sanitizeFilename(originalName),
-            rel_path: relPath,
-            ...metadata
-        });
+        const dbResult = imageRepository.add(await buildIndexPayload(
+            filePath,
+            relPath,
+            sanitizeFilename(originalName),
+            metadata
+        ));
 
         // 添加到魔法搜图队列
         queueForMagicSearch(dbResult, relPath, fileInfo.filename);
@@ -132,6 +154,7 @@ router.post('/upload-url', requirePassword, ensureUploadAvailable, express.json(
         const base64Data = `data:${imageData.mimetype};base64,${imageData.buffer.toString('base64')}`;
         const { filename, filePath, size, mimetype } = await saveBase64Image(base64Data, dir);
         const relPath = path.join(dir, filename).replace(/\\/g, "/");
+        await ensureUploadedMediaSafe(filePath);
 
         // Generate metadata
         const metadata = await getFileMetadata(filePath, relPath);
@@ -143,11 +166,12 @@ router.post('/upload-url', requirePassword, ensureUploadAvailable, express.json(
         const nameWithoutExt = path.basename(urlFilename, ext);
         const originalName = ext ? `${nameWithoutExt}${ext}` : filename;
 
-        const dbResult = imageRepository.add({
-            filename: sanitizeFilename(originalName),
-            rel_path: relPath,
-            ...metadata
-        });
+        const dbResult = imageRepository.add(await buildIndexPayload(
+            filePath,
+            relPath,
+            sanitizeFilename(originalName),
+            metadata
+        ));
 
         // Add to magic search queue
         queueForMagicSearch(dbResult, relPath, originalName);
@@ -189,6 +213,7 @@ router.post('/upload', requirePassword, ensureUploadAvailable, upload.any(), han
 
         if (req.files && req.files.length > 0) req.file = req.files[0];
         if (!req.file) return res.status(400).json({ success: false, error: "没有选择文件" });
+        await ensureUploadedMediaSafe(req.file.path);
 
         // 如果需要移动文件（multer storage 逻辑基本已处理，但需再次检查？）
         // 自定义 multer storage 已经将其放置在正确的目录和名称下。
@@ -205,11 +230,12 @@ router.post('/upload', requirePassword, ensureUploadAvailable, upload.any(), han
             try { originalName = Buffer.from(originalName, "latin1").toString("utf8"); } catch (e) { }
         }
 
-        const dbResult = imageRepository.add({
-            filename: req.file.filename, // 这是磁盘上的保存文件名
-            rel_path: relPath,
-            ...metadata
-        });
+        const dbResult = imageRepository.add(await buildIndexPayload(
+            req.file.path,
+            relPath,
+            req.file.filename,
+            metadata
+        ));
 
 
         // 添加到魔法搜图队列
@@ -334,11 +360,12 @@ router.post('/process-image', requirePassword, ensureUploadAvailable, upload.sin
       // 入库
       try {
           const fileMetadata = await getFileMetadata(processedFilePath, relPath);
-          imageRepository.add({
-              filename: finalFilename,
-              rel_path: relPath,
-              ...fileMetadata
-          });
+          imageRepository.add(await buildIndexPayload(
+              processedFilePath,
+              relPath,
+              finalFilename,
+              fileMetadata
+          ));
       } catch (dbErr) {
           console.error("Failed to index processed image:", dbErr);
       }
@@ -431,12 +458,14 @@ router.post('/upload-file', requirePassword, ensureUploadAvailable, uploadAny.si
         // 如果用户上传了允许图片之外的通用文件，我们将其保留在磁盘上
         // 但不添加到 DB。
         if (config.upload.allowedExtensions.includes(ext)) {
+            await ensureUploadedMediaSafe(filePath);
             const metadata = await getFileMetadata(filePath, relPath);
-            imageRepository.add({
-                filename: finalFilename,
-                rel_path: relPath,
-                ...metadata
-            });
+            imageRepository.add(await buildIndexPayload(
+                filePath,
+                relPath,
+                finalFilename,
+                metadata
+            ));
         }
 
         // 时长逻辑

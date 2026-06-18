@@ -1,7 +1,33 @@
 const express = require('express');
 const router = express.Router();
 const clipService = require('../services/clipService');
+const imageRepository = require('../db/imageRepository');
+const tagRepository = require('../db/tagRepository');
+const { requirePassword } = require('../middleware/auth');
 const { formatImageResponse } = require('../utils/urlUtils');
+const { getAllLockedDirectories, isAlbumLocked, verifyAlbumPassword } = require('../utils/albumUtils');
+
+async function filterTagSearchRows(req, rows, dir) {
+    if (dir && await isAlbumLocked(dir)) {
+        const albumPassword = req.headers['x-album-password'];
+        if (!albumPassword || !(await verifyAlbumPassword(dir, albumPassword))) {
+            const error = new Error('需要访问密码');
+            error.statusCode = 403;
+            error.payload = { success: false, error: '需要访问密码', locked: true };
+            throw error;
+        }
+        return rows;
+    }
+
+    if (!dir) {
+        const lockedDirs = await getAllLockedDirectories();
+        if (lockedDirs.length > 0) {
+            return rows.filter((row) => !lockedDirs.some((lockedDir) => row.rel_path.startsWith(`${lockedDir}/`)));
+        }
+    }
+
+    return rows;
+}
 
 // 语义搜索
 router.post('/semantic', async (req, res) => {
@@ -44,6 +70,50 @@ router.post('/reindex', async (req, res) => {
         res.json({ success: true, ...result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/by-tag', requirePassword, async (req, res) => {
+    try {
+        const tag = String(req.query.tag || '').trim();
+        if (!tag) {
+            return res.status(400).json({ success: false, error: 'tag is required' });
+        }
+
+        const assetHashes = tagRepository.getAssetHashesByTagNames([tag]);
+        const dir = req.query.dir || '';
+        const rows = await filterTagSearchRows(req, imageRepository.getByAssetHashes(assetHashes, {
+            dir,
+            search: req.query.search || '',
+        }), dir);
+        res.json({ success: true, data: rows.map((row) => formatImageResponse(req, row)) });
+    } catch (error) {
+        console.error('Tag search error:', error);
+        res.status(error.statusCode || 500).json(error.payload || { success: false, error: 'Tag search failed' });
+    }
+});
+
+router.get('/by-tags', requirePassword, async (req, res) => {
+    try {
+        const tags = String(req.query.tags || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+
+        if (tags.length === 0) {
+            return res.status(400).json({ success: false, error: 'tags is required' });
+        }
+
+        const assetHashes = tagRepository.getAssetHashesByTagNames(tags);
+        const dir = req.query.dir || '';
+        const rows = await filterTagSearchRows(req, imageRepository.getByAssetHashes(assetHashes, {
+            dir,
+            search: req.query.search || '',
+        }), dir);
+        res.json({ success: true, data: rows.map((row) => formatImageResponse(req, row)) });
+    } catch (error) {
+        console.error('Multi-tag search error:', error);
+        res.status(error.statusCode || 500).json(error.payload || { success: false, error: 'Tag search failed' });
     }
 });
 

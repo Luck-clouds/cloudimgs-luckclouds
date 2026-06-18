@@ -27,10 +27,12 @@ function formatImageResponse(req, image) {
 
     return {
         // Standard fields
+        id: image.id,
         filename: image.filename,
         relPath: image.rel_path,
         fullUrl: fullUrl, // Absolute URL
         url: url,           // Relative API URL
+        assetHash: image.asset_hash || null,
         width: image.width,
         height: image.height,
         size: image.size,

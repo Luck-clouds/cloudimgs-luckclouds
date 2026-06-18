@@ -14,6 +14,7 @@ const systemRoutes = require("./routes/systemRoutes");
 const statsRoutes = require("./routes/statsRoutes");
 const searchRoutes = require("./routes/searchRoutes");
 const shareRoutes = require("./routes/shareRoutes");
+const tagRoutes = require("./routes/tagRoutes");
 const { migrateFromLegacyJson, syncFileSystem } = require("./services/syncService");
 
 
@@ -43,6 +44,9 @@ app.use("/api", uploadRoutes); // /upload, /upload-base64
 
 // 分享
 app.use("/api/share", shareRoutes);
+
+// 标签
+app.use("/api", tagRoutes);
 
 // 管理（密码、回收站、批量移动）
 app.use("/api", manageRoutes); // /batch/move, /album/*, /images/* (DELETE)

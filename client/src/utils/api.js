@@ -19,12 +19,14 @@ const generateMockImages = () => {
       const width = Math.floor(Math.random() * (1600 - 1000) + 1000);
       const height = Math.floor(Math.random() * (1200 - 800) + 800);
       images.push({
+        id: idCounter,
         relPath: `mock-image-${idCounter}.jpg`,
         filename: `Mock Image ${idCounter}.jpg`,
         url: `https://picsum.photos/${width}/${height}?random=${idCounter}`,
         size: Math.floor(Math.random() * 5000000),
         uploadTime: baseTime - Math.floor(Math.random() * 1000000), // Slightly vary time within day
         thumbhash: null, // Optional
+        assetHash: `mock-hash-${idCounter}`,
       });
       idCounter++;
     }
@@ -207,6 +209,7 @@ const mockAdapter = async (config) => {
         const body = JSON.parse(data);
         const originalRelPath = decodeURIComponent(cleanUrl.split("/images/")[1]);
         const newName = body.newName;
+        const original = mockImages.find((item) => item.relPath === originalRelPath) || mockImages[0];
         // const newDir = body.newDir;
 
         let updatedRelPath = originalRelPath;
@@ -223,11 +226,13 @@ const mockAdapter = async (config) => {
             success: true,
             data: {
               relPath: updatedRelPath,
+              id: original.id,
               filename: updatedFilename,
               url: `https://picsum.photos/800/600?random=${Math.random()}`, // Just return a valid obj
               size: 1024,
               uploadTime: Date.now(),
-              thumbhash: null
+              thumbhash: null,
+              assetHash: original.assetHash,
             }
           },
           status: 200,
@@ -270,7 +275,8 @@ const mockAdapter = async (config) => {
             data: {
               upload: { maxFileSize: 104857600, allowedExtensions: [".jpg", ".png", ".gif", ".mp4"] },
               storage: { filename: { keepOriginalName: true } },
-              magicSearch: { enabled: true }
+              magicSearch: { enabled: true },
+              imageSource: { enabled: false, uploadEnabled: true, scanOnRefresh: true }
             }
           },
           status: 200,
@@ -356,6 +362,81 @@ const mockAdapter = async (config) => {
               ...img,
               score: Math.random()
             }))
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return;
+      }
+
+      if (cleanUrl === "/tags" && method === "get") {
+        resolve({
+          data: {
+            success: true,
+            data: [
+              { id: 1, name: "天空", usageCount: 12 },
+              { id: 2, name: "云朵", usageCount: 8 },
+              { id: 3, name: "旅行", usageCount: 5 },
+            ],
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return;
+      }
+
+      if (/^\/images\/\d+\/tags$/.test(cleanUrl) && method === "get") {
+        resolve({
+          data: {
+            success: true,
+            data: [{ id: 1, name: "天空" }, { id: 2, name: "云朵" }],
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return;
+      }
+
+      if (/^\/images\/\d+\/tags$/.test(cleanUrl) && method === "post") {
+        const body = JSON.parse(data);
+        resolve({
+          data: {
+            success: true,
+            data: (body.tagNames || []).map((name, index) => ({ id: index + 1, name })),
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return;
+      }
+
+      if (/^\/images\/\d+\/tags\/\d+$/.test(cleanUrl) && method === "delete") {
+        resolve({
+          data: {
+            success: true,
+            data: [{ id: 1, name: "天空" }],
+          },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return;
+      }
+
+      if (cleanUrl.startsWith("/search/by-tags") && method === "get") {
+        resolve({
+          data: {
+            success: true,
+            data: mockImages.slice(0, 6),
           },
           status: 200,
           statusText: "OK",

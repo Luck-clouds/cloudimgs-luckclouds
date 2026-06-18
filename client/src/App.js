@@ -160,7 +160,14 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await api.post("/sync", { fullRebuild });
+      const response = await api.post(
+        "/sync",
+        { fullRebuild },
+        {
+          // 全量构建需要扫描和补哈希，时间明显长于普通接口。
+          timeout: fullRebuild ? 10 * 60 * 1000 : 60 * 1000,
+        }
+      );
       const result = response.data?.data || {};
       const modeText = fullRebuild ? "全量重建" : "刷新同步";
       const statsText = typeof result.scanned === "number"
@@ -199,6 +206,10 @@ function App() {
 
   const handleBatchDelete = async () => {
     if (selectedItems.size === 0) return;
+    if (publicConfig.imageSource?.enabled) {
+      message.warning("外部图片源模式下已禁用批量删除");
+      return;
+    }
 
     try {
       const hide = message.loading("正在删除...", 0);
@@ -372,6 +383,7 @@ function App() {
                 onBatchMove={handleBatchMove}
                 uploadEnabled={publicConfig.imageSource?.uploadEnabled !== false}
                 refreshing={refreshing}
+                batchDeleteDisabled={publicConfig.imageSource?.enabled === true}
               />
             )}
 
