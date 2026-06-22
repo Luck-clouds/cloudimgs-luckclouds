@@ -288,9 +288,43 @@ function getByAssetHashes(assetHashes, options = {}) {
     params.push(`${options.dir.replace(/\\/g, '/')}/%`);
   }
 
+  if (Array.isArray(options.excludeDirs) && options.excludeDirs.length > 0) {
+    const normalizedDirs = [...new Set(options.excludeDirs.map((dir) => String(dir || '').replace(/\\/g, '/')).filter(Boolean))];
+    for (const lockedDir of normalizedDirs) {
+      sql += ' AND rel_path NOT LIKE ?';
+      params.push(`${lockedDir}/%`);
+    }
+  }
+
   if (options.search) {
     sql += ' AND filename LIKE ?';
     params.push(`%${options.search}%`);
+  }
+
+  sql += ' ORDER BY upload_time DESC';
+  return db.prepare(sql).all(...params);
+}
+
+function getByFilenameSearch(search, options = {}) {
+  const trimmedSearch = String(search || '').trim();
+  if (!trimmedSearch) {
+    return [];
+  }
+
+  const params = [`%${trimmedSearch}%`];
+  let sql = 'SELECT * FROM images WHERE filename LIKE ?';
+
+  if (options.dir) {
+    sql += ' AND rel_path LIKE ?';
+    params.push(`${options.dir.replace(/\\/g, '/')}/%`);
+  }
+
+  if (Array.isArray(options.excludeDirs) && options.excludeDirs.length > 0) {
+    const normalizedDirs = [...new Set(options.excludeDirs.map((dir) => String(dir || '').replace(/\\/g, '/')).filter(Boolean))];
+    for (const lockedDir of normalizedDirs) {
+      sql += ' AND rel_path NOT LIKE ?';
+      params.push(`${lockedDir}/%`);
+    }
   }
 
   sql += ' ORDER BY upload_time DESC';
@@ -318,6 +352,7 @@ module.exports = {
   getByAssetHash: (assetHash) => getFirstImageByAssetHash.get(assetHash),
   getAllByAssetHash: (assetHash) => getAllImagesByAssetHashQuery.all(assetHash),
   getByAssetHashes,
+  getByFilenameSearch,
   getAll: () => getAllImagesQuery.all(),
   getAllSyncEntries: () => getAllSyncEntriesQuery.all(),
   getSyncEntriesBySource: (sourceType) => getSyncEntriesBySourceQuery.all(sourceType),

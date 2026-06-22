@@ -15,6 +15,7 @@ const {
     resolveMediaPathFromRecord,
     resolveMediaPathFromRelPath,
 } = require('../services/mediaSourceService');
+const { hasTagOperators, shouldUseTagSearch, searchImageRowsByExpression } = require('../services/tagSearchService');
 
 const router = express.Router();
 const EXTERNAL_SKIP_DIRS = new Set(['cache', 'recycle', 'suspic']);
@@ -121,13 +122,45 @@ router.get('/images', requirePassword, async (req, res) => {
         dir = dir.replace(/\\/g, "/");
         const page = parseInt(req.query.page) || 1;
         const pageSize = parseInt(req.query.pageSize) || 10;
-        const search = req.query.search || "";
+        const search = String(req.query.search || "").trim();
 
         const albumPassword = req.headers["x-album-password"];
         if (dir && await isAlbumLocked(dir)) {
             if (!albumPassword || !(await verifyAlbumPassword(dir, albumPassword))) {
                 return res.status(403).json({ success: false, error: "需要访问密码", locked: true });
             }
+        }
+
+        const useTagSearch = shouldUseTagSearch(search);
+
+        if (useTagSearch) {
+            // 直接复用当前图片列表接口，让现有搜索框无需改请求协议即可支持标签表达式。
+            const lockedDirs = !dir ? await getAllLockedDirectories() : [];
+            const tagRows = searchImageRowsByExpression(search, {
+                dir,
+                excludeDirs: lockedDirs,
+            });
+            const rows = hasTagOperators(search)
+                ? tagRows
+                : [...new Map([
+                    ...tagRows,
+                    ...imageRepository.getByFilenameSearch(search, { dir, excludeDirs: lockedDirs }),
+                ].map((row) => [row.id, row])).values()];
+            rows.sort((a, b) => String(b.upload_time || '').localeCompare(String(a.upload_time || '')));
+            const offset = (page - 1) * pageSize;
+            const paginated = rows.slice(offset, offset + pageSize);
+
+            res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+            return res.json({
+                success: true,
+                data: paginated.map(img => formatImageResponse(req, img)),
+                pagination: {
+                    current: page,
+                    pageSize,
+                    total: rows.length,
+                    totalPages: Math.ceil(rows.length / pageSize)
+                }
+            });
         }
 
         if (!dir) {

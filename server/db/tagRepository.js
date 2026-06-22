@@ -54,6 +54,12 @@ const attachTagToAssetQuery = db.prepare(`
 const removeTagFromAssetQuery = db.prepare('DELETE FROM image_tags WHERE asset_hash = ? AND tag_id = ?');
 const removeRelationsByTagIdQuery = db.prepare('DELETE FROM image_tags WHERE tag_id = ?');
 const deleteTagQuery = db.prepare('DELETE FROM tags WHERE id = ?');
+const getAllAssetHashesQuery = db.prepare(`
+  SELECT DISTINCT asset_hash
+  FROM images
+  WHERE asset_hash IS NOT NULL AND asset_hash != ''
+`);
+const hasTagByNormalizedNameQuery = db.prepare('SELECT 1 FROM tags WHERE normalized_name = ? LIMIT 1');
 
 function createOrGetTag(name) {
   const trimmedName = String(name || '').trim();
@@ -107,13 +113,72 @@ function getAssetHashesByTagNames(tagNames) {
   return rows.map((row) => row.asset_hash);
 }
 
+function getAssetHashesWithAnyTags(tagNames) {
+  const normalizedNames = [...new Set((tagNames || []).map(normalizeTagName).filter(Boolean))];
+  if (normalizedNames.length === 0) return [];
+
+  const placeholders = normalizedNames.map(() => '?').join(', ');
+  const sql = `
+    SELECT DISTINCT it.asset_hash
+    FROM image_tags it
+    INNER JOIN tags t ON t.id = it.tag_id
+    WHERE t.normalized_name IN (${placeholders})
+  `;
+  return db.prepare(sql).all(...normalizedNames).map((row) => row.asset_hash);
+}
+
+function searchAssetHashesByParsedExpression(parsedExpression) {
+  const groups = Array.isArray(parsedExpression?.groups) ? parsedExpression.groups : [];
+  if (groups.length === 0) return [];
+
+  const allHashes = new Set(getAllAssetHashesQuery.all().map((row) => row.asset_hash).filter(Boolean));
+  const matchedHashes = new Set();
+
+  for (const group of groups) {
+    const include = [...new Set((group?.include || []).map(normalizeTagName).filter(Boolean))];
+    const exclude = [...new Set((group?.exclude || []).map(normalizeTagName).filter(Boolean))];
+
+    if (include.length === 0 && exclude.length === 0) {
+      continue;
+    }
+
+    if (include.some((name) => exclude.includes(name))) {
+      continue;
+    }
+
+    const candidateSet = include.length > 0
+      ? new Set(getAssetHashesByTagNames(include))
+      : new Set(allHashes);
+
+    if (candidateSet.size === 0) {
+      continue;
+    }
+
+    if (exclude.length > 0) {
+      const excludedHashes = new Set(getAssetHashesWithAnyTags(exclude));
+      for (const hash of excludedHashes) {
+        candidateSet.delete(hash);
+      }
+    }
+
+    for (const hash of candidateSet) {
+      matchedHashes.add(hash);
+    }
+  }
+
+  return [...matchedHashes];
+}
+
 module.exports = {
   normalizeTagName,
   getOrCreate: (name) => createOrGetTag(name),
   list: () => getAllTagsQuery.all(),
+  hasTagName: (name) => Boolean(hasTagByNormalizedNameQuery.get(normalizeTagName(name))),
   getTagsByAssetHash: (assetHash) => getTagsByAssetHashQuery.all(assetHash),
   attachTagsToAssetHash: (assetHash, tagNames) => attachTagsTransaction(assetHash, tagNames),
   removeTagFromAssetHash: (assetHash, tagId) => removeTagFromAssetQuery.run(assetHash, tagId),
   deleteTag: (tagId) => deleteTagTransaction(tagId),
   getAssetHashesByTagNames,
+  getAssetHashesWithAnyTags,
+  searchAssetHashesByParsedExpression,
 };
