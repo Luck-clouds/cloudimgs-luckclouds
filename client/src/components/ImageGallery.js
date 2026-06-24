@@ -2371,6 +2371,7 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
           setPreviewVisible(false);
         }}
         onUpdate={handleUpdate}
+        settings={settings}
       />
       <ImageEditModal
         open={editorVisible}

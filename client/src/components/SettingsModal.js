@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Modal, Slider, Button, theme } from "antd";
+import { Modal, Slider, Button, Switch, theme } from "antd";
 import { ReloadOutlined, SettingOutlined } from "@ant-design/icons";
 
 const SettingsModal = ({ open, onClose, settings, onSettingsChange, onFullRebuild, rebuilding = false }) => {
@@ -31,6 +31,10 @@ const SettingsModal = ({ open, onClose, settings, onSettingsChange, onFullRebuil
   const handleRadiusChange = (val) => {
     const next = { ...draft, imageRadius: val };
     setDraft(next);
+  };
+
+  const handleBlurBackgroundChange = (checked) => {
+    setDraft({ ...draft, enableDetailBlurBackground: checked });
   };
 
   const previewColors = ["#dce8ff", "#d4f0e8", "#f0dce8"];
@@ -198,6 +202,46 @@ const SettingsModal = ({ open, onClose, settings, onSettingsChange, onFullRebuil
               {draft.imageRadius || 0}px
             </div>
           </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 16,
+            background: token.colorFillAlter,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            borderRadius: 12,
+            padding: "14px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: token.colorText,
+                marginBottom: 4,
+              }}
+            >
+              背景虚化填充
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: token.colorTextSecondary,
+                lineHeight: 1.5,
+              }}
+            >
+              图片详情页使用缩略图做高斯模糊背景填充
+            </div>
+          </div>
+          <Switch
+            checked={draft.enableDetailBlurBackground !== false}
+            onChange={handleBlurBackgroundChange}
+          />
         </div>
       </div>
 

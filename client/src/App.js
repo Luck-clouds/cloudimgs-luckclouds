@@ -14,6 +14,7 @@ import { getPassword, clearPassword } from "./utils/secureStorage";
 
 const defaultSettings = {
   imageRadius: 0,
+  enableDetailBlurBackground: true,
 };
 
 function App() {

@@ -105,6 +105,7 @@ const ImageDetailModal = ({
   onDelete,
   onUpdate, // Callback when file is renamed or moved
   onTagsChange,
+  settings,
 }) => {
   const {
     token: { colorBgContainer, colorText, colorTextSecondary, colorPrimary },
@@ -140,6 +141,7 @@ const ImageDetailModal = ({
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [backgroundSrc, setBackgroundSrc] = useState("");
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -236,6 +238,7 @@ const ImageDetailModal = ({
       return Math.max(1, Math.min(newZoom, 5)); // Limit zoom between 1x and 5x
     });
   };
+
 
   const handleMouseDown = (e) => {
     if (zoom > 1) {
@@ -478,6 +481,8 @@ const ImageDetailModal = ({
     return getThumbHashUrl(file.thumbhash);
   }, [file]);
   const isExternalFile = Boolean(file?.isExternal);
+  const isVideoFile = /\.(mp4|webm)$/i.test(file?.filename || "");
+  const enableDetailBlurBackground = settings?.enableDetailBlurBackground !== false;
   const hasThumb = !!thumbUrl;
   const isDarkBg = hasThumb || isDarkMode;
   const isLight = !isDarkBg;
@@ -510,6 +515,14 @@ const ImageDetailModal = ({
       WebkitBackdropFilter: "blur(8px)",
     };
   };
+  useEffect(() => {
+    if (!file || isVideoFile || !enableDetailBlurBackground) {
+      setBackgroundSrc("");
+      return;
+    }
+
+    setBackgroundSrc(thumbUrl || file.url || "");
+  }, [enableDetailBlurBackground, file, isVideoFile, thumbUrl]);
 
   if (!file) return null;
 
@@ -654,7 +667,7 @@ const ImageDetailModal = ({
               }}
               style={{
                 position: "absolute",
-                left: 20,
+                left: 0,
                 zIndex: 100,
                 height: "100%",
                 width: 80,
@@ -682,7 +695,7 @@ const ImageDetailModal = ({
               }}
               style={{
                 position: "absolute",
-                right: 20,
+                right: 0,
                 zIndex: 100,
                 height: "100%",
                 width: 80,
@@ -733,23 +746,75 @@ const ImageDetailModal = ({
               touchStartYRef.current = null;
             }}
           >
-            {/* Blurry Background */}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-                backgroundImage: `url(${thumbUrl || file.url})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                filter: "blur(40px) brightness(0.5)",
-                transform: "scale(1.2)",
-                zIndex: 0,
-              }}
-            />
-            {/\.(mp4|webm)$/i.test(file.filename) ? (
+            {/* Background Fill Layers */}
+            {isVideoFile ? (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundColor: "#0f0f0f",
+                  zIndex: 0,
+                }}
+              />
+            ) : enableDetailBlurBackground && backgroundSrc ? (
+              <>
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "linear-gradient(180deg, #111 0%, #0b0b0b 100%)",
+                    zIndex: 0,
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: -24,
+                    backgroundImage: `url(${backgroundSrc})`,
+                    backgroundRepeat: "no-repeat",
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    filter: "blur(18px) saturate(1.08) brightness(0.72)",
+                    transform: "scale(1.16)",
+                    opacity: imgLoaded ? 0.96 : 0.82,
+                    transition: "opacity 0.28s ease",
+                    zIndex: 1,
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: `
+                      radial-gradient(circle at center, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.22) 70%, rgba(0,0,0,0.38) 100%),
+                      linear-gradient(180deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.28) 100%)
+                    `,
+                    zIndex: 2,
+                    pointerEvents: "none",
+                    opacity: imgLoaded ? 1 : 0.92,
+                    transition: "opacity 0.28s ease",
+                  }}
+                />
+              </>
+            ) : (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  backgroundImage: `url(${thumbUrl || file.url})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  filter: "blur(40px) brightness(0.5)",
+                  transform: "scale(1.15)",
+                  zIndex: 0,
+                }}
+              />
+            )}
+            {isVideoFile ? (
               <video
                 ref={videoRef}
                 controls
@@ -760,7 +825,7 @@ const ImageDetailModal = ({
                   width: "auto",
                   height: "auto",
                   boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
-                  zIndex: 2,
+                  zIndex: 3,
                   outline: "none",
                 }}
                 src={file.url}
@@ -783,7 +848,12 @@ const ImageDetailModal = ({
                 <img
                   key={file.url}
                   alt="preview"
-                  onLoad={() => setImgLoaded(true)}
+                  onLoad={() => {
+                    setImgLoaded(true);
+                    if (enableDetailBlurBackground && file?.url && backgroundSrc !== file.url) {
+                      setBackgroundSrc(file.url);
+                    }
+                  }}
                   style={{
                     maxWidth: "100%",
                     maxHeight: "100%",
@@ -791,7 +861,7 @@ const ImageDetailModal = ({
                     height: "auto",
                     objectFit: "contain",
                     boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
-                    zIndex: 2,
+                    zIndex: 3,
                     transform: `scale(${zoom}) translate(${position.x / zoom}px, ${position.y / zoom}px)`,
                     transition: isDragging ? "none" : "transform 0.1s ease-out", // Smooth zoom, instant drag
                     pointerEvents: "none", // Let container handle events
