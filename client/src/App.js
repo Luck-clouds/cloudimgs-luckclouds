@@ -11,6 +11,7 @@ import ShareView from "./components/ShareView";
 import DirectorySelector from "./components/DirectorySelector";
 import TrafficDashboard from './components/TrafficDashboard';
 import { getPassword, clearPassword } from "./utils/secureStorage";
+import { ConsoleImage } from "./utils/consoleImage";
 
 const defaultSettings = {
   imageRadius: 0,
@@ -58,15 +59,8 @@ function App() {
     if (savedTheme) {
       setCurrentTheme(savedTheme);
     }
-  		console.log(
-				`%c Luck-Clouds %c 正在施工中... %c \n\n%c  ©2026 By LuckClouds\n`,
-				'color: #ffffff; background: #1E88E5; padding: 12px 20px; border-radius: 8px 0 0 8px; font-size: 16px; font-weight: bold; vertical-align: middle;',
-				'color: #1976D2; background: #F0F7FF; padding: 12px 20px; border-radius: 0 8px 8px 0; font-size: 14px; font-weight: 500; vertical-align: middle;',
-				'',
-				'color: #666; font-size: 12px; margin-top: 8px; display: block;'
-			)
-			console.log('%c 云散·飞花 v 1.6.0 %c  ©2026 By LuckClouds','color: white; background: #00ffff; padding:5px 0;', 'padding:4px;border:1px solid #00ffff;')
-  }, []);
+  		ConsoleImage()
+    }, []);
 
   const handleThemeChange = (theme) => {
     setCurrentTheme(theme);

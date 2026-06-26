@@ -1075,14 +1075,14 @@ const ImageDetailModal = ({
                     />
                   </div>
                   {isTagEditorVisible && (
-                    <div style={{ display: "flex", gap: 8, marginBottom: tags.length > 0 ? 12 : 0 }}>
+                    <div style={{ display: "flex",color:"rgb(255, 255, 255)", gap: 8, marginBottom: tags.length > 0 ? 12 : 0 }}>
                       <Input
                         value={tagInput}
                         onChange={(e) => setTagInput(e.target.value)}
                         onPressEnter={handleAddTags}
                         placeholder="输入标签，可用逗号分隔"
                         style={{
-                          background: hasThumb ? "rgba(255,255,255,0.12)" : colorBgContainer,
+                          background: hasThumb ? "rgb(255, 255, 255)" : colorBgContainer,
                           color: textColor,
                           border: "none",
                         }}
