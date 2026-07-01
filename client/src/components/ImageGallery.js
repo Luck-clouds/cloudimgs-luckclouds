@@ -2186,6 +2186,24 @@ const ImageGallery = ({ onDelete, onRefresh, api, isAuthenticated, refreshTrigge
                 </Button>
                 <Button
                   type="text"
+                  icon={<CloudUploadOutlined />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    window.open("/upload-workbench", "_blank");
+                  }}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    display: "flex",
+                    alignItems: "center",
+                    height: 40,
+                    fontSize: 14
+                  }}
+                >
+                  上传
+                </Button>
+                <Button
+                  type="text"
                   icon={<AreaChartOutlined />}
                   onClick={() => {
                     setMenuOpen(false);

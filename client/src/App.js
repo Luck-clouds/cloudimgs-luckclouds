@@ -10,6 +10,7 @@ import MapPage from "./components/MapPage";
 import ShareView from "./components/ShareView";
 import DirectorySelector from "./components/DirectorySelector";
 import TrafficDashboard from './components/TrafficDashboard';
+import UploadWorkbench from "./components/UploadWorkbench";
 import { getPassword, clearPassword } from "./utils/secureStorage";
 import { ConsoleImage } from "./utils/consoleImage";
 
@@ -48,6 +49,7 @@ function App() {
   const isApiDocs = window.location.pathname === "/opendocs";
   const isMapPage = window.location.pathname === "/map";
   const isTrafficDashboard = window.location.pathname === "/traffic";
+  const isUploadWorkbench = window.location.pathname === "/upload-workbench";
   const isShareView = window.location.pathname.startsWith("/share");
 
   const { useBreakpoint } = Grid;
@@ -320,6 +322,33 @@ function App() {
           <TrafficDashboard />
         ) : isShareView ? (
           <ShareView currentTheme={currentTheme} onThemeChange={handleThemeChange} />
+        ) : isUploadWorkbench ? (
+          authLoading ? (
+            <div style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "100vh",
+              flexDirection: "column",
+              gap: 20
+            }}>
+              <LogoWithText />
+              <Spin size="large" />
+            </div>
+          ) : (
+            <>
+              <UploadWorkbench
+                api={api}
+                onUploadSuccess={bumpRefreshTrigger}
+              />
+              {passwordRequired && !isAuthenticated && (
+                <PasswordOverlay
+                  onLoginSuccess={handleLoginSuccess}
+                  isMobile={isMobile}
+                />
+              )}
+            </>
+          )
         ) : authLoading ? (
           <div style={{
             display: "flex",

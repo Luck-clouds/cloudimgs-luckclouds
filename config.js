@@ -69,7 +69,7 @@ module.exports = {
     rootPath: process.env.EASYIMAGE_SOURCE_PATH || "C:/\Users/\云/\Pictures/\Screenshots",
 
     // 保留原生上传逻辑作为兜底开关，默认开启
-    uploadEnabled:false,
+    uploadEnabled:true,
 
     // 右下角刷新时默认同时执行增量索引同步
     scanOnRefresh:false,

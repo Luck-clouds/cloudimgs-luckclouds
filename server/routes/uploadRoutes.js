@@ -64,6 +64,45 @@ async function ensureUploadedMediaSafe(filePath) {
     }
 }
 
+async function indexUploadedMedia(req, file, dir, priority = 'high') {
+    const normalizedDir = String(dir || '').replace(/\\/g, "/");
+    await ensureUploadedMediaSafe(file.path);
+    const relPath = path.join(normalizedDir, file.filename).replace(/\\/g, "/");
+    const metadata = await getFileMetadata(file.path, relPath);
+    let originalName = file.originalname;
+    if (!/[^\u0000-\u00ff]/.test(originalName)) {
+        try { originalName = Buffer.from(originalName, "latin1").toString("utf8"); } catch (e) { }
+    }
+
+    const dbResult = imageRepository.add(await buildIndexPayload(
+        file.path,
+        relPath,
+        file.filename,
+        metadata
+    ));
+
+    queueForMagicSearch(dbResult, relPath, file.filename, priority);
+    imageRepository.recordUpload(file.size);
+
+    const dbImage = imageRepository.getByPath(relPath);
+    const formatted = formatImageResponse(req, dbImage || {
+        filename: file.filename,
+        rel_path: relPath,
+        width: metadata.width,
+        height: metadata.height,
+        size: file.size,
+        upload_time: metadata.upload_time,
+        mime_type: file.mimetype,
+        thumbhash: metadata.thumbhash
+    });
+
+    return {
+        ...formatted,
+        originalName,
+        mimetype: file.mimetype
+    };
+}
+
 // 1. Base64 上传
 router.post('/upload-base64', requirePassword, ensureUploadAvailable, express.json({ limit: '50mb' }), async (req, res) => {
     try {
@@ -213,63 +252,54 @@ router.post('/upload', requirePassword, ensureUploadAvailable, upload.any(), han
 
         if (req.files && req.files.length > 0) req.file = req.files[0];
         if (!req.file) return res.status(400).json({ success: false, error: "没有选择文件" });
-        await ensureUploadedMediaSafe(req.file.path);
 
-        // 如果需要移动文件（multer storage 逻辑基本已处理，但需再次检查？）
-        // 自定义 multer storage 已经将其放置在正确的目录和名称下。
-        // 所以 req.file.path 是正确的。
-
-        const relPath = path.join(dir, req.file.filename).replace(/\\/g, "/");
-
-        // 元数据与数据库
-        const metadata = await getFileMetadata(req.file.path, relPath);
-
-        // 原始名称处理
-        let originalName = req.file.originalname;
-        if (!/[^\u0000-\u00ff]/.test(originalName)) {
-            try { originalName = Buffer.from(originalName, "latin1").toString("utf8"); } catch (e) { }
-        }
-
-        const dbResult = imageRepository.add(await buildIndexPayload(
-            req.file.path,
-            relPath,
-            req.file.filename,
-            metadata
-        ));
-
-
-        // 添加到魔法搜图队列
-        queueForMagicSearch(dbResult, relPath, req.file.filename, 'high');
-
-        // 记录上传统计信息
-        imageRepository.recordUpload(req.file.size);
-
-        // Helper
-        const formatted = formatImageResponse(req, {
-            filename: req.file.filename,
-            rel_path: relPath,
-            width: metadata.width,
-            height: metadata.height,
-            size: req.file.size,
-            upload_time: metadata.upload_time,
-            mime_type: req.file.mimetype,
-            thumbhash: metadata.thumbhash
-        });
-
-        res.json({
-            success: true,
-            message: "图片上传成功",
-            data: {
-                ...formatted,
-                originalName: originalName,
-                mimetype: req.file.mimetype
-            }
-        });
-
+        const data = await indexUploadedMedia(req, req.file, dir, 'high');
+        res.json({ success: true, message: "图片上传成功", data });
     } catch (error) {
         console.error("上传错误:", error);
-        res.status(500).json({ success: false, error: "上传失败，请稍后重试" });
+        res.status(500).json({ success: false, error: error.message || "上传失败，请稍后重试" });
     }
+});
+
+// 1.1.1 批量上传图片/视频，单个文件失败不会中断整个批次。
+router.post('/uploads/batch', requirePassword, ensureUploadAvailable, upload.any(), handleMulterError, async (req, res) => {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (files.length === 0) {
+        return res.status(400).json({ success: false, error: "没有选择文件" });
+    }
+
+    let dir = req.body.dir || req.query.dir || "";
+    dir = dir.replace(/\\/g, "/");
+
+    const results = [];
+    for (const file of files) {
+        try {
+            const data = await indexUploadedMedia(req, file, dir, 'high');
+            results.push({ success: true, originalName: data.originalName || file.originalname, data });
+        } catch (error) {
+            console.error("批量上传单文件失败:", file.originalname, error);
+            if (file.path) {
+                try { await fs.remove(file.path); } catch (cleanupError) { }
+            }
+            results.push({
+                success: false,
+                originalName: file.originalname,
+                filename: file.filename,
+                error: error.message || "上传失败"
+            });
+        }
+    }
+
+    res.json({
+        success: results.some((item) => item.success),
+        message: "批量上传完成",
+        data: {
+            total: results.length,
+            successCount: results.filter((item) => item.success).length,
+            failCount: results.filter((item) => !item.success).length,
+            results
+        }
+    });
 });
 
 // 1.2 处理图片（缩放+居中合成到指定尺寸）
